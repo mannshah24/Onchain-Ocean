@@ -1,0 +1,35 @@
+# Dependency Directories
+node_modules/
+onchain_ocean/node_modules/
+onchain_ocean/app/node_modules/
+vendor/
+onchain_ocean/vendor/
+
+# Rust Build Output
+target/
+onchain_ocean/target/
+**/*.rs.bk
+
+# Solana / Anchor Files
+.anchor/
+onchain_ocean/.anchor/
+test-ledger/
+onchain_ocean/test-ledger/
+*keypair.json
+**/*keypair.json
+
+# Environment / Secret Files
+.env
+.env.local
+.env.*
+*.env
+
+# Package Manager Caches
+.yarn/
+onchain_ocean/.yarn/
+yarn-error.log
+npm-debug.log*
+
+# OS / System Files
+.DS_Store
+Thumbs.db
