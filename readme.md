@@ -1,326 +1,96 @@
-## Navigation Flow
+# Onchain Ocean
 
-```mermaid
-flowchart TD
-    A[Landing]
-
-    A -->|Click Explore| B[Spectator Cinematic Flight]
-    A -->|Click Swim| C[Activate WASD / Drag Controls]
-    A -->|Search Wallet / .sol Domain| D[Focus Camera on Target Structure]
-    A -->|Connect Wallet| E[Locate Connected Wallet]
-
-    E --> D
-    D --> F[Open Right Information Panel]
-    F --> G[Inspect Wallet Analytics]
-    G --> H[Continue Free Exploration]
-```
-
-
-###Overview
-
-Onchain Ocean is a futuristic Atlantis-inspired underwater civilization built on top of real Solana blockchain data.
-
-Users can connect wallets, search .sol domains or wallet addresses, and explore blockchain activity as architectural structures inside a living 3D ocean world.
-
-Completed Features ✅
-Wallet & Blockchain Integration
-Phantom Wallet integration
-Solflare Wallet integration
-Wallet connection flow
-Real Solana RPC integration
-Real wallet balance fetching
-Real transaction count retrieval
-Wallet age estimation
-Transaction history timeline
-Protocol interaction detection
-Connected wallet relationships
-Solana Name Service (.sol) resolution
-Reverse wallet lookup support
-Search & Navigation
-Search by wallet address
-Search by .sol domain
-Dynamic structure generation
-Camera focus on searched wallets
-Structure selection system
-Wallet detail inspection panel
-Information Panels
-Right Information Panel
-
-Displays:
-
-Wallet information
-SOL balance
-Transaction statistics
-Protocol interactions
-Community affiliations
-Activity timeline
-Connected structures
-3D World
-Ocean Environment
-Underwater exploration world
-Ocean fog system
-Atmospheric lighting
-Ocean floor environment
-Exploration camera controls
-Traffic System
-Bioluminescent transaction drones
-Dynamic traffic movement
-Multi-colored transaction routes
-Architecture Upgrades ✅
-Interactive Structure Families
-Wallet Tower Campus
-
-Formerly: Basic Spire
-
-Now includes:
-
-Multi-level skyscraper
-Helix cage
-Observation decks
-Side buildings
-Skybridges
-Crystal energy core
-Protocol HQ Complex
-
-Formerly: Basic Rig
-
-Now includes:
-
-Corporate headquarters
-Office wings
-Glass atriums
-Geodesic dome
-Signal towers
-Internal courtyards
-Community Civic District
-
-Formerly: Basic Citadel
-
-Now includes:
-
-Civic plaza
-Community hall
-Residential districts
-Biodome
-Circular transit ring
-Crystal heart core
-Social Campus
-
-Formerly: Community Cluster
-
-Now includes:
-
-Elevated platform system
-Social hall
-Connected buildings
-Glass corridor network
-Hanging gardens
-Infrastructure Megaplex
-
-Formerly: Research Station
-
-Now includes:
-
-Research complex
-Observatory dome
-Analysis wing
-Data tower
-Signal arrays
-Glass transit corridors
-Landmark Architecture ✅
-Genesis Citadel
-
-Central capital city landmark featuring:
-
-Multi-tier platforms
-Crystal energy core
-Orbit rings
-Observation districts
-Light beacon
-Aether Pillar
-
-Ancient megastructure featuring:
-
-95-unit vertical tower
-Floating crystals
-Triple orbit rings
-Crown apex
-Helios Tower
-
-Futuristic luxury complex featuring:
-
-Central skyscraper
-Satellite towers
-Glass skybridges
-Reactor dome
-Skyline & Metropolis ✅
-District System
-Core Reef
-Cyan / White district
-DeFi Trench
-Violet / Magenta district
-Social Shelf
-Gold / Turquoise district
-City Features
-Multi-layer skyline
-Biodome cities
-Elevated platform districts
-Transit corridors
-Dense city horizon
-District lighting zones
-Exploration UX ✅
-Hero Camera System
-
-Custom camera framing for:
-
-Wallet Campuses
-Protocol HQs
-Community Districts
-Research Complexes
-Blockchain Landmarks
-Exploration Flow
-Search → Focus → Explore
-ESC closes info panel
-ESC exits focus mode
-Free-swim continues from current location
-No forced return to lobby
-Technical Status ✅
-Verified
-Build compiles successfully
-TypeScript validation passes
-Wallet integrations functional
-Search system functional
-Camera system functional
-Structure interactions functional
-Remaining Work 🚧
-Stage 6 — Visual Polish
-Lighting Improvements
-Better architectural visibility
-Stronger building highlights
-Improved emissive lighting
-Better contrast
-Atmosphere Improvements
-Enhanced underwater fog
-Better color grading
-Stronger volumetric effects
-Improved depth perception
-Living Ocean
-
-Planned:
-
-Large jellyfish schools
-Fish schools
-Manta rays
-Whale silhouettes
-Ambient marine ecosystems
-Effects
-
-Planned:
-
-God rays
-Volumetric light shafts
-Bloom improvements
-Bubble systems
-Ocean current effects
-Bioluminescent particle clouds
-Stage 7 — Final Visual Refinement
-Reference Image Matching
-
-Current state:
-
-Functional underwater blockchain city
-
-Target state:
-
-Premium cinematic Atlantis metropolis
-
-Focus areas:
-
-Camera composition polish
-Material quality improvements
-Lighting refinement
-Environmental storytelling
-Increased visual impact
-Current Project Status
-Backend & Features
-
-90–95% Complete
-
-Core Product Functionality
-
-95% Complete
-
-Visual Experience
-
-70–75% Complete
-
-Final Polish Remaining
-
-Lighting + Atmosphere + Marine Life + Cinematic Presentation
-
-Current Goal
-
-Transform the existing functional blockchain civilization into a visually stunning, cinematic Atlantis-scale underwater metropolis while preserving all completed wallet, search, telemetry, and exploration systems. 🌊🏙️✨
-
-# Onchain Ocean - Progress Summary
-
-## What We Have Completed ✅
-
-- Phantom & Solflare Wallet Connect
-- Real Solana Wallet Data Integration
-- .sol Domain Search
-- Wallet Info Panel (Balance, Transactions, Timeline, Protocols)
-- Underwater 3D Ocean World
-- Dynamic Wallet Structures
-- Genesis Citadel Landmark
-- Aether Pillar Landmark
-- Helios Tower Landmark
-- City Skyline & Districts
-- Traffic Drones & Ocean Activity
-- Wallet Campus Buildings
-- Protocol HQ Buildings
-- Community District Buildings
-- Research Megaplex Buildings
-- Hero Camera Focus System
-- ESC → Exit Focus & Continue Free Swim
-- Search → Focus → Explore Flow
+Onchain Ocean is a futuristic, Atlantis-inspired underwater 3D metropolis built on top of live Solana blockchain telemetry. It allows users to visualize wallet data, explore transaction patterns, interact directly via on-chain messaging, and view blockchain activities materialized as immersive architectural structures.
 
 ---
 
-## What Is Still Remaining 🚧
+## 🌊 Core Features
 
-### Visual Improvements
-- Better Lighting
-- Better Building Visibility
-- Improved Materials & Colors
-- More Cinematic Camera Angles
+### 🏛️ The Living 3D Metropolis
+* **Dynamic Architectural Generation**: Wallets are represented as unique 3D structures on the ocean floor. The physical scale, floor height, window luminescence, and structure styles are procedurally generated using real-world wallet statistics (SOL balance, transaction volume, and active age).
+* **Immersive Exploration**: Fly through the oceanic grid, dive into abyssal trenches, and navigate using interactive WASD or drag-and-drop Orbit controls.
+* **Bioluminescent Traffic Routes**: Live on-chain transactions are represented as glowing, multi-colored drone streams moving between structures. Drones visually trace real-world wallet relationships and token routing.
+* **Curated Visual Themes**: Switch between multiple lighting modes including *Abyssal*, *Bioluminescent*, *Reef Sunrise*, and *Neon Depths* to customize the atmosphere of the ocean floor.
 
-### Atmosphere
-- God Rays
-- Better Fog
-- Bloom Effects
-- Volumetric Lighting
+### 🔍 Sonar Navigation & Search
+* **Domain Resolution**: Integrates with the Solana Name Service (SNS) to resolve `.sol` domains directly to public keys.
+* **Target Focus**: Searching any wallet address or `.sol` domain triggers a cinematic camera pan that framing the target structure in the ocean, showing its details in the side HUD.
+* **Detailed Analytics Panel**: Open the right inspection panel to review live wallet balance, historical transaction timeline, protocol usage metrics, and community memberships.
 
-### Living Ocean
-- Jellyfish Schools
-- Fish Schools
-- Manta Rays
-- Whale Silhouettes
-- Bubble & Particle Systems
-
-### Final Goal
-Make the project look closer to the reference image:
-- More premium
-- More cinematic
-- More alive
-- More Atlantis-like
+### 🏢 Architectural Typologies
+Structures are categorized based on the wallet's on-chain activity:
+* **Wallet Tower Campus**: Skyscraper complexes featuring observation decks, skybridges, and glowing crystal energy cores.
+* **Protocol HQ Complex**: Geodesic dome structures, corporate office wings, and signal arrays for protocols with high activity.
+* **Community Civic District**: Circular transit rings, public halls, and residential zones representing collective DAOs or community wallets.
+* **Social Campus**: Elevated platform networks and hanging gardens for social or creator wallets.
+* **Infrastructure Megaplex**: Research complexes, signal antennas, and observatory domes reflecting developers and smart contract creators.
 
 ---
 
-## Current Status
+## ⚙️ Smart Contract Functionalities
 
-Backend & Features: ~95% Done ✅
+The **Onchain Ocean** program is written in Rust using the Anchor framework, space-optimized, and configured for easy deployment on **Solana Playground** (Solpg).
 
-Visual & Atmosphere: ~70% Done 🚧
+* **Program ID**: `BfZLHQYYggHG3gyiEU4Yd8yFxpSdQM6Tyat7QcX6z8nf`
+* **Network**: Devnet / Localnet
+* **Smart Contract Source**: [`lib.rs`](./onchain_ocean/programs/onchain_ocean/src/lib.rs)
+* **Anchor IDL File**: [`onchain_ocean.json`](./onchain_ocean/target/idl/onchain_ocean.json)
+* **TypeScript Types**: [`onchain_ocean.ts`](./onchain_ocean/target/types/onchain_ocean.ts)
 
-Current Phase: Final Visual Polish & Living Ocean
+### Key Program Instructions
+
+#### 1. User Registration & NFT Minting (`register_user`)
+When a wallet registers on the platform for the first time, the program:
+* Initializes a `UserProfile` PDA (`[b"user-profile", wallet]`).
+* Mints exactly **1** unique registration NFT to the user's Associated Token Account (ATA).
+* Revokes the mint and freeze authorities of the NFT on-chain, capping its supply permanently at 1.
+* Stores starting statistics and metadata link on-chain.
+
+#### 2. Daily Batch Messaging (`send_batch_messages`)
+To allow direct wallet-to-wallet conversations without signing endless transactions, the system buffers messages locally:
+* At the end of the day, the user signs **exactly one transaction** containing all messages.
+* The program processes the vector of messages, updates the sender's message count and timestamp, and emits a `MessageSent` event log for each message.
+* Emitting logs writes the chat history directly into the Solana transaction ledger, eliminating costly state account rent.
+
+#### 3. Dynamic Profile Stats Sync (`update_profile_stats`)
+* Enables the wallet owner to write transaction metrics (`transaction_count`, `contract_types` bitmask, and an off-chain API metadata URI) verified by Solana indexers/APIs directly into their profile.
+* This allows the frontend to group and filter users who interact with the "same kind of smart contract" or have similar on-chain transactions.
+
+---
+
+## 🧪 Test Suite Verification
+
+A robust suite of **14 test cases** was written in TypeScript covering boundary conditions, limit checks, error cases, transaction atomicity, and multi-user interactions.
+
+### Test Coverage Summary
+* **Registration**: Successful account creation, NFT mint verification, duplicate registration block, and metadata URI length limits.
+* **Batch Messaging**: Successful batch emissions, empty vector block, length validations (256-char limits), default public key recipient rejection, and **all-or-nothing atomicity rollback checks**.
+* **Integrations**: Multi-user messages back-and-forth and unauthorized stat updates.
+
+Below is the execution log proving all 14 tests pass successfully on the local Solana validator:
+
+![Test Execution Result](./onchain_ocean/tests/test-passing.png)
+
+---
+
+## 🚀 Getting Started
+
+### 🖥️ Running the Frontend App
+1. Navigate to the app directory:
+   ```bash
+   cd onchain_ocean/app
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Run the local development server:
+   ```bash
+   npm run dev
+   ```
+
+### 🛠️ Deploying the Smart Contract
+1. Open **[Solana Playground](https://solpg.io/)** in your browser.
+2. Create a new **Anchor (Rust)** project named `onchain_ocean`.
+3. Copy the code from [`lib.rs`](./onchain_ocean/programs/onchain_ocean/src/lib.rs) and paste it into Solpg's editor.
+4. Run `build` and `deploy` in the Solana Playground terminal.
