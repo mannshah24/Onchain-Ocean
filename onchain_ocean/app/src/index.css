@@ -7,21 +7,68 @@
   --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-mono: "Fira Code", monospace;
 
+  /* ─── Theme Colors (Abyssal default) ─── */
   --color-ocean-bg: #030712;
-  --color-ocean-depth: #070f21;
-  --color-glass-bg: rgba(10, 15, 30, 0.45);
+  --color-ocean-depth: #041029;
+  --color-ocean-surface: #0c1f38;
+  --color-glass-bg: rgba(10, 15, 30, 0.55);
   --color-glass-border: rgba(255, 255, 255, 0.08);
 
   --color-neon-cyan: #06b6d4;
   --color-neon-purple: #8b5cf6;
   --color-neon-pink: #ec4899;
   --color-neon-emerald: #10b981;
+  --color-neon-gold: #f59e0b;
 
+  --color-accent: #06b6d4;
+  --color-accent-shadow: #064e3b;
+
+  /* ─── Animations ─── */
   --animate-float: float 6s ease-in-out infinite;
   --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
   --animate-sonar-sweep: sonar-sweep 2.5s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
 }
 
+/* ─── Base styles ─── */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--color-ocean-bg);
+  font-family: var(--font-sans);
+  color: #f3f4f6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(6, 182, 212, 0.3);
+  color: #e0f2fe;
+}
+
+/* ─── Glassmorphism ─── */
+.glass-panel {
+  background: var(--color-glass-bg);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid var(--color-glass-border);
+}
+
+.glass-panel-hover:hover {
+  border-color: rgba(6, 182, 212, 0.25);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.08);
+}
+
+.glass-card {
+  background: rgba(10, 15, 30, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+}
+
+/* ─── Keyframes ─── */
 @keyframes float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
@@ -37,33 +84,125 @@
   100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
 }
 
-/* Custom Base Styles */
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--color-ocean-bg);
-  font-family: var(--font-sans);
-  color: #f3f4f6;
-  -webkit-font-smoothing: antialiased;
+@keyframes biolum-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
+  50% { box-shadow: 0 0 16px 4px rgba(6, 182, 212, 0.2); }
 }
 
-/* Glassmorphism utility helpers */
-.glass-panel {
-  background: var(--color-glass-bg);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
-  border: 1px solid var(--color-glass-border);
+@keyframes current-flow {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
 }
 
-.glass-panel-hover:hover {
-  border-color: rgba(6, 182, 212, 0.25);
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.05);
+@keyframes wave-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-/* Custom premium scrollbar styling */
+@keyframes bubble-rise-slow {
+  0% { transform: translateY(0) scale(1); opacity: 0.3; }
+  50% { opacity: 0.5; }
+  100% { transform: translateY(-60px) scale(0.6); opacity: 0; }
+}
+
+@keyframes depth-glow {
+  0%, 100% { box-shadow: 0 0 8px 2px rgba(6, 182, 212, 0.2), inset 0 0 4px rgba(6, 182, 212, 0.05); }
+  50% { box-shadow: 0 0 20px 6px rgba(6, 182, 212, 0.3), inset 0 0 8px rgba(6, 182, 212, 0.1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes zone-announce {
+  0%   { opacity: 0; transform: translateX(-20px); }
+  10%  { opacity: 1; transform: translateX(0); }
+  80%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(0); }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.6); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 3px rgba(6, 182, 212, 0); }
+}
+
+@keyframes streak-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 8px 2px currentColor; }
+}
+
+@keyframes sonar-ring {
+  0% { transform: scale(0.5); opacity: 0.8; border-width: 2px; }
+  100% { transform: scale(2.5); opacity: 0; border-width: 0.5px; }
+}
+
+/* ─── Utility Classes ─── */
+.biolum-pulse {
+  animation: biolum-pulse 2s ease-in-out infinite;
+}
+
+.live-dot {
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+.animate-zone-announce {
+  animation: zone-announce 3s ease-out forwards;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.depth-glow {
+  animation: depth-glow 2s ease-in-out infinite;
+}
+
+.wave-shimmer {
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    rgba(6, 182, 212, 0.08) 45%,
+    rgba(6, 182, 212, 0.15) 50%,
+    rgba(6, 182, 212, 0.08) 55%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: wave-shimmer 3s linear infinite;
+}
+
+/* Button press effect */
+.btn-ocean {
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.btn-ocean:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.2);
+}
+.btn-ocean:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+/* ─── Scrollbar ─── */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -81,3 +220,47 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-neon-cyan);
 }
+
+/* ─── Theme Overrides ─── */
+[data-theme="bioluminescent"] {
+  --color-accent: #a78bfa;
+  --color-accent-shadow: #4c1d95;
+  --color-ocean-bg: #050510;
+  --color-ocean-depth: #0c0a1a;
+}
+
+[data-theme="reef-sunrise"] {
+  --color-accent: #f59e0b;
+  --color-accent-shadow: #78350f;
+  --color-ocean-bg: #0f0a02;
+  --color-ocean-depth: #1a0e04;
+}
+
+[data-theme="neon-depths"] {
+  --color-accent: #ec4899;
+  --color-accent-shadow: #831843;
+  --color-ocean-bg: #0a0410;
+  --color-ocean-depth: #120818;
+}
+
+/* ─── Sonar Map ─── */
+.sonar-ring {
+  animation: sonar-ring 2.5s ease-out infinite;
+}
+
+/* ─── Swim Mode HUD ─── */
+.swim-hud-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Zone Badge Colors ─── */
+.zone-whale_abyss { color: #06b6d4; border-color: rgba(6, 182, 212, 0.3); background: rgba(6, 182, 212, 0.08); }
+.zone-defi_trench { color: #a855f7; border-color: rgba(168, 85, 247, 0.3); background: rgba(168, 85, 247, 0.08); }
+.zone-nft_reef { color: #ec4899; border-color: rgba(236, 72, 153, 0.3); background: rgba(236, 72, 153, 0.08); }
+.zone-gamefi_atoll { color: #22c55e; border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.08); }
+.zone-governance_basin { color: #f97316; border-color: rgba(249, 115, 22, 0.3); background: rgba(249, 115, 22, 0.08); }
+.zone-builders_cove { color: #3b82f6; border-color: rgba(59, 130, 246, 0.3); background: rgba(59, 130, 246, 0.08); }
+.zone-degen_depths { color: #ef4444; border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.08); }
+.zone-validator_ridge { color: #eab308; border-color: rgba(234, 179, 8, 0.3); background: rgba(234, 179, 8, 0.08); }
+.zone-social_shallows { color: #14b8a6; border-color: rgba(20, 184, 166, 0.3); background: rgba(20, 184, 166, 0.08); }
+.zone-explorer_expanse { color: #8b5cf6; border-color: rgba(139, 92, 246, 0.3); background: rgba(139, 92, 246, 0.08); }

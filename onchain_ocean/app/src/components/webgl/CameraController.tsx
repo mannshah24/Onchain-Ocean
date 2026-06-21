@@ -5,6 +5,8 @@ import { useOceanStore } from '../../store/useOceanStore';
 
 // Movement constants
 const MOVE_SPEED = 24.0;
+const SWIM_SPEED = 40.0;
+const SWIM_BOOST_SPEED = 70.0;
 const DRAG_SENSITIVITY = 0.003;
 
 export default function CameraController() {
@@ -14,25 +16,25 @@ export default function CameraController() {
 
   // Key tracking
   const keysPressed = useRef({
-    w: false,
-    a: false,
-    s: false,
-    d: false,
-    space: false,
-    shift: false,
+    w: false, a: false, s: false, d: false,
+    space: false, shift: false, boost: false,
   });
 
   // Inertia and rotation tracking
   const velocity = useRef(new THREE.Vector3());
-  const rotation = useRef({ yaw: 0, pitch: -0.2 }); // Look slightly down initially
+  const rotation = useRef({ yaw: 0, pitch: -0.2 });
   const isDragging = useRef(false);
   const lookTarget = useRef(new THREE.Vector3(0, 0, 0));
 
-  // Cinematic journey tracking refs
+  // Cinematic journey tracking
   const startPos = useRef(new THREE.Vector3());
   const startLook = useRef(new THREE.Vector3());
   const transitionTime = useRef(0);
   const targetPosPrev = useRef(new THREE.Vector3());
+
+  // Swim mode scoring
+  const swimScoreTimer = useRef(0);
+  const nearbyStructureTimer = useRef(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -43,6 +45,9 @@ export default function CameraController() {
       if (k === 'd' || e.key === 'ArrowRight') keysPressed.current.d = true;
       if (e.key === ' ') keysPressed.current.space = true;
       if (e.key === 'Shift') keysPressed.current.shift = true;
+      if (k === 'e') keysPressed.current.boost = true;
+      // G key to toggle swim mode
+      if (k === 'g') useOceanStore.getState().toggleSwimMode();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -53,25 +58,23 @@ export default function CameraController() {
       if (k === 'd' || e.key === 'ArrowRight') keysPressed.current.d = false;
       if (e.key === ' ') keysPressed.current.space = false;
       if (e.key === 'Shift') keysPressed.current.shift = false;
+      if (k === 'e') keysPressed.current.boost = false;
     };
 
     const handleMouseDown = () => {
-      if (cameraState.mode === 'free-float' || cameraState.mode === 'focused') {
+      if (cameraState.mode === 'free-float' || cameraState.mode === 'focused' || cameraState.mode === 'swim') {
         isDragging.current = true;
       }
     };
 
-    const handleMouseUp = () => {
-      isDragging.current = false;
-    };
+    const handleMouseUp = () => { isDragging.current = false; };
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       rotation.current.yaw -= e.movementX * DRAG_SENSITIVITY;
       rotation.current.pitch = THREE.MathUtils.clamp(
         rotation.current.pitch - e.movementY * DRAG_SENSITIVITY,
-        -Math.PI / 3,
-        Math.PI / 3
+        -Math.PI / 3, Math.PI / 3
       );
     };
 
@@ -93,8 +96,6 @@ export default function CameraController() {
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
 
-    // --- Swim-release Focus Trigger ---
-    // If the user tries to swim while in focused state, release control back to free-float
     const anyKeysPressed = keysPressed.current.w || keysPressed.current.a || 
                            keysPressed.current.s || keysPressed.current.d || 
                            keysPressed.current.space || keysPressed.current.shift;
@@ -104,7 +105,7 @@ export default function CameraController() {
       return;
     }
 
-    // --- MODE 1: Cinematic Panning (Homepage / Lobby idle) ---
+    // --- MODE: Cinematic Panning ---
     if (cameraState.mode === 'cinematic-panning') {
       const t = state.clock.getElapsedTime() * 0.04;
       camera.position.x = Math.sin(t) * 55;
@@ -114,38 +115,27 @@ export default function CameraController() {
       return;
     }
 
-    // --- MODE 2: Focused Zoom (Search / Structure selection) ---
+    // --- MODE: Focused ---
     if (cameraState.mode === 'focused') {
       const targetPos = new THREE.Vector3(...cameraState.position);
       const targetLook = new THREE.Vector3(...cameraState.lookAt);
 
-      // Reset start markers if focusing a new target
       if (!targetPosPrev.current.equals(targetPos)) {
         startPos.current.copy(camera.position);
-        
-        // Grab current camera forward orientation to project a starting lookAt target
         const forwardVec = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         startLook.current.copy(camera.position).addScaledVector(forwardVec, 15);
-        
         transitionTime.current = 0;
         targetPosPrev.current.copy(targetPos);
       }
 
       if (transitionTime.current < 1) {
-        // Increment progress (transition takes ~1.25 seconds)
         transitionTime.current = Math.min(1.0, transitionTime.current + dt * 0.8);
         const tVal = transitionTime.current;
+        const ease = tVal < 0.5 ? 4 * tVal * tVal * tVal : 1 - Math.pow(-2 * tVal + 2, 3) / 2;
 
-        // Cubic Easing (easeInOutCubic)
-        const ease = tVal < 0.5 
-          ? 4 * tVal * tVal * tVal 
-          : 1 - Math.pow(-2 * tVal + 2, 3) / 2;
-
-        // Base linear interpolations
         const currentPos = new THREE.Vector3().lerpVectors(startPos.current, targetPos, ease);
         const currentLook = new THREE.Vector3().lerpVectors(startLook.current, targetLook, ease);
 
-        // Add a beautiful cinematic height arc (climb & descend) proportional to distance
         const distance = startPos.current.distanceTo(targetPos);
         const arcHeight = Math.sin(tVal * Math.PI) * Math.min(15.0, distance * 0.25);
         currentPos.y += arcHeight;
@@ -154,22 +144,23 @@ export default function CameraController() {
         lookTarget.current.copy(currentLook);
         camera.lookAt(lookTarget.current);
       } else {
-        // Lock to exact target coordinates upon arrival
         camera.position.copy(targetPos);
         lookTarget.current.copy(targetLook);
         camera.lookAt(lookTarget.current);
         updateCameraState({ animating: false });
       }
 
-      // Sync internal Euler rotation vectors with final quaternion look direction
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       rotation.current.yaw = Math.atan2(forward.x, forward.z);
       rotation.current.pitch = Math.asin(forward.y);
       return;
     }
 
-    // --- MODE 3: Free Float Swimming (WASD exploration) ---
-    if (cameraState.mode === 'free-float') {
+    // --- MODE: Free Float / Swim ---
+    if (cameraState.mode === 'free-float' || cameraState.mode === 'swim') {
+      const isSwim = cameraState.mode === 'swim';
+      const baseSpeed = isSwim ? (keysPressed.current.boost ? SWIM_BOOST_SPEED : SWIM_SPEED) : MOVE_SPEED;
+
       const forwardDir = new THREE.Vector3(0, 0, -1)
         .applyQuaternion(
           new THREE.Quaternion().setFromEuler(
@@ -185,7 +176,6 @@ export default function CameraController() {
         );
 
       const moveInput = new THREE.Vector3();
-
       if (keysPressed.current.w) moveInput.add(forwardDir);
       if (keysPressed.current.s) moveInput.sub(forwardDir);
       if (keysPressed.current.d) moveInput.add(rightDir);
@@ -195,29 +185,71 @@ export default function CameraController() {
 
       if (moveInput.lengthSq() > 0) moveInput.normalize();
 
-      // Apply acceleration force
-      velocity.current.addScaledVector(moveInput, MOVE_SPEED * dt);
+      velocity.current.addScaledVector(moveInput, baseSpeed * dt);
+      const dragFactor = isSwim ? 2.0 : 2.5;
+      velocity.current.multiplyScalar(Math.exp(-dragFactor * dt));
 
-      // Apply water drag / damping
-      velocity.current.multiplyScalar(Math.exp(-2.5 * dt));
-
-      // Update position
       camera.position.addScaledVector(velocity.current, dt);
 
-      // Boundary Clamps: prevent going too high (surface) or clipping floor
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, 2.0, 60.0);
-      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -250.0, 250.0);
-      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -250.0, 250.0);
+      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -350.0, 350.0);
+      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -350.0, 350.0);
 
-      // Interpolate lookAt target
-      const lookAtPoint = new THREE.Vector3()
-        .copy(camera.position)
-        .add(forwardDir);
-      
-      // Bobbing action (ocean currents simulation)
+      const lookAtPoint = new THREE.Vector3().copy(camera.position).add(forwardDir);
       camera.position.y += Math.sin(state.clock.getElapsedTime() * 1.5) * 0.003;
-
       camera.lookAt(lookAtPoint);
+
+      // Update camera position in store for sonar map + bottom HUD
+      const pos = camera.position;
+      updateCameraState({ position: [pos.x, pos.y, pos.z] });
+
+      // --- Swim Mode Scoring ---
+      if (isSwim) {
+        const speed = velocity.current.length();
+        useOceanStore.getState().setSwimHUD({
+          speed: speed * 3.6,
+          depth: camera.position.y,
+        });
+
+        // Score from movement
+        swimScoreTimer.current += dt;
+        if (swimScoreTimer.current >= 0.5 && speed > 0.5) {
+          swimScoreTimer.current = 0;
+          const speedBonus = Math.floor(speed * 2);
+          const store = useOceanStore.getState();
+          const combo = Math.min(10, store.swimScore.combo + (speed > 3 ? 1 : 0));
+          const earned = speedBonus * Math.max(1, combo);
+          store.setSwimScore({
+            score: store.swimScore.score + earned,
+            earned,
+            combo,
+            maxCombo: Math.max(store.swimScore.maxCombo, combo),
+          });
+        }
+
+        // Check proximity to structures for discovery scoring
+        nearbyStructureTimer.current += dt;
+        if (nearbyStructureTimer.current >= 1.0) {
+          nearbyStructureTimer.current = 0;
+          const structures = useOceanStore.getState().layout.structures;
+          const sf = 0.06;
+          for (const s of structures) {
+            const dx = camera.position.x - s.position[0] * sf;
+            const dz = camera.position.z - s.position[2] * sf;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < 15) {
+              const store = useOceanStore.getState();
+              const collected = store.swimScore.collected + 1;
+              store.setSwimScore({
+                score: store.swimScore.score + 50,
+                collected,
+                combo: store.swimScore.combo + 1,
+              });
+              break;
+            }
+          }
+        }
+      }
     }
   });
 

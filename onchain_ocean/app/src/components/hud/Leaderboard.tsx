@@ -1,99 +1,190 @@
+import { useState, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { useOceanStore } from '../../store/useOceanStore';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Award, Zap, Coins } from 'lucide-react';
+import { X, Trophy, TrendingUp, Clock, Layers } from 'lucide-react';
+import { getWalletArchetype, ZONE_COLORS, ZONE_NAMES } from '../../types';
+
+const TABS = [
+  { id: 'volume', label: 'Volume', icon: TrendingUp, key: 'solVolume' as const },
+  { id: 'txs', label: 'Transactions', icon: Layers, key: 'txCount' as const },
+  { id: 'age', label: 'Wallet Age', icon: Clock, key: 'walletAgeYears' as const },
+] as const;
 
 export default function Leaderboard() {
   const activeRoute = useOceanStore((state) => state.activeRoute);
   const setRoute = useOceanStore((state) => state.setRoute);
   const profiles = useOceanStore((state) => state.profiles);
+  const layout = useOceanStore((state) => state.layout);
+  const theme = useOceanStore((state) => state.theme);
   const setSelectedAddress = useOceanStore((state) => state.setSelectedAddress);
+  const connectedAddress = useOceanStore((state) => state.connectedAddress);
 
-  const isLeaderboardOpen = activeRoute === 'leaderboard';
+  const [activeTab, setActiveTab] = useState(0);
+  const [autoRotate, setAutoRotate] = useState(true);
 
-  // Sort profiles by transaction count (excluding the blockchain layer)
-  const sortedProfiles = useMemo(() => {
+  // Auto-rotate tabs
+  useEffect(() => {
+    if (!autoRotate) return;
+    const timer = setInterval(() => {
+      setActiveTab((i) => (i + 1) % TABS.length);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [autoRotate]);
+
+  const tab = TABS[activeTab];
+  const sorted = useMemo(() => {
     return [...profiles]
-      .filter((p) => p.type !== 'blockchain')
-      .sort((a, b) => b.txCount - a.txCount);
-  }, [profiles]);
+      .sort((a, b) => (b[tab.key] as number) - (a[tab.key] as number))
+      .slice(0, 20);
+  }, [profiles, tab.key]);
 
-  if (!isLeaderboardOpen) return null;
+  const connectedRank = useMemo(() => {
+    if (!connectedAddress) return null;
+    const all = [...profiles].sort((a, b) => (b[tab.key] as number) - (a[tab.key] as number));
+    const idx = all.findIndex((p) => p.address === connectedAddress);
+    return idx >= 0 ? idx + 1 : null;
+  }, [profiles, connectedAddress, tab.key]);
+
+  const formatValue = (val: number) => {
+    if (tab.key === 'solVolume') return `${val.toLocaleString()} SOL`;
+    if (tab.key === 'walletAgeYears') return `${val} Yrs`;
+    return val.toLocaleString();
+  };
+
+  const getRankColor = (rank: number) => {
+    if (rank === 1) return '#ffd700';
+    if (rank === 2) return '#c0c0c0';
+    if (rank === 3) return '#cd7f32';
+    return 'rgb(148, 163, 184)';
+  };
+
+  const getRankEmoji = (rank: number) => {
+    if (rank === 1) return '🥇';
+    if (rank === 2) return '🥈';
+    if (rank === 3) return '🥉';
+    return '';
+  };
+
+  if (activeRoute !== 'leaderboard') return null;
 
   return (
-    <AnimatePresence>
+    <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md pointer-events-auto select-none font-sans"
+        className="w-[calc(100%-32px)] max-w-lg max-h-[80vh] rounded-3xl border border-white/10 glass-panel shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden pointer-events-auto select-none"
       >
-        <div className="w-full max-w-lg rounded-3xl border border-white/10 glass-panel shadow-[0_25px_60px_rgba(0,0,0,0.8)] flex flex-col p-6 max-h-[85vh]">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6 pb-3 border-b border-white/5">
-            <div className="flex items-center gap-2">
-              <Award className="text-cyan-400" size={18} />
-              <h2 className="font-heading font-bold text-base md:text-lg text-white uppercase tracking-wider">
-                Ocean Civilization Leaderboard
-              </h2>
-            </div>
-            <button
-              onClick={() => setRoute('lobby')}
-              className="p-1.5 rounded-full border border-white/5 bg-white/5 text-slate-400 hover:text-white hover:border-cyan-400/25 transition-all duration-300"
-            >
-              <X size={14} />
-            </button>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 pb-3 border-b border-white/5">
+          <div className="flex items-center gap-2.5">
+            <Trophy size={16} style={{ color: theme.accent }} />
+            <h2 className="font-heading font-bold text-sm tracking-wider uppercase text-white">
+              Ocean Leaderboard
+            </h2>
           </div>
+          <button
+            onClick={() => setRoute('explore')}
+            className="p-1.5 rounded-full border border-white/5 bg-white/5 text-slate-400 hover:text-white cursor-pointer transition-all"
+          >
+            <X size={13} />
+          </button>
+        </div>
 
-          {/* List Scroll */}
-          <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3">
-            {sortedProfiles.map((p, index) => (
-              <div
-                key={p.address}
-                onClick={() => {
-                  setRoute('passport');
-                  setSelectedAddress(p.address);
+        {/* Tabs */}
+        <div className="flex items-center gap-1 p-3 pb-0">
+          {TABS.map((t, i) => {
+            const Icon = t.icon;
+            const isActive = activeTab === i;
+            return (
+              <button
+                key={t.id}
+                onClick={() => { setActiveTab(i); setAutoRotate(false); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-heading font-semibold tracking-wider uppercase transition-all cursor-pointer"
+                style={{
+                  color: isActive ? theme.accent : 'rgb(148, 163, 184)',
+                  background: isActive ? `${theme.accent}15` : 'transparent',
+                  border: isActive ? `1px solid ${theme.accent}30` : '1px solid transparent',
                 }}
-                className="flex items-center justify-between p-3.5 rounded-2xl bg-white/5 border border-white/5 hover:border-cyan-400/25 hover:bg-cyan-500/5 cursor-pointer transition-all duration-300"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* Rank badge */}
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold ${
-                    index === 0 ? 'bg-amber-400/20 text-amber-400' :
-                    index === 1 ? 'bg-slate-300/20 text-slate-300' :
-                    index === 2 ? 'bg-amber-600/20 text-amber-600' :
-                    'bg-white/5 text-slate-400'
-                  }`}>
-                    {index + 1}
-                  </span>
-                  
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-heading font-semibold text-xs text-white truncate">
-                      {p.domain || 'Unnamed Spire'}
-                    </span>
-                    <span className="font-mono text-[9px] text-slate-500 uppercase">
-                      {p.type}
-                    </span>
-                  </div>
-                </div>
+                <Icon size={11} />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
-                {/* Stats */}
-                <div className="flex items-center gap-4 text-xs font-mono">
-                  <div className="flex items-center gap-1 text-slate-300">
-                    <Zap size={11} className="text-cyan-400" />
-                    <span>{p.txCount.toLocaleString()}</span>
+        {/* Your rank */}
+        {connectedRank && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded-xl border flex items-center justify-between"
+            style={{ borderColor: `${theme.accent}30`, background: `${theme.accent}08` }}
+          >
+            <span className="text-[10px] text-slate-400 font-mono">Your Rank</span>
+            <span className="text-xs font-bold font-mono" style={{ color: theme.accent }}>
+              #{connectedRank}
+            </span>
+          </div>
+        )}
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="flex flex-col gap-1">
+            {sorted.map((p, i) => {
+              const rank = i + 1;
+              const structure = layout.structures.find((s) => s.address === p.address);
+              const zone = structure?.zone || 'explorer_expanse';
+              const isConnected = p.address === connectedAddress;
+              return (
+                <motion.div
+                  key={p.address}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  onClick={() => { setSelectedAddress(p.address); setRoute('passport'); }}
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer transition-all hover:bg-white/5"
+                  style={{
+                    border: isConnected ? `1px solid ${theme.accent}40` : '1px solid transparent',
+                    background: isConnected ? `${theme.accent}05` : undefined,
+                  }}
+                >
+                  {/* Rank */}
+                  <div className="w-7 shrink-0 text-center">
+                    {rank <= 3 ? (
+                      <span className="text-sm">{getRankEmoji(rank)}</span>
+                    ) : (
+                      <span className="text-[11px] font-mono font-bold" style={{ color: getRankColor(rank) }}>
+                        #{rank}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1 text-slate-300 border-l border-white/5 pl-4">
-                    <Coins size={11} className="text-purple-400" />
-                    <span>{p.solVolume >= 1000 ? `${(p.solVolume / 1000).toFixed(1)}k` : p.solVolume}</span>
+
+                  {/* Profile */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-white font-mono truncate">
+                        {p.domain || `${p.address.slice(0, 6)}...${p.address.slice(-4)}`}
+                      </span>
+                      {isConnected && (
+                        <span className="text-[8px] font-heading font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded" style={{ color: theme.accent, background: `${theme.accent}15` }}>
+                          YOU
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-slate-500 font-mono">
+                      {getWalletArchetype(p.address).split(' ')[0]} · <span style={{ color: ZONE_COLORS[zone] }}>{ZONE_NAMES[zone]}</span>
+                    </span>
                   </div>
-                </div>
-              </div>
-            ))}
+
+                  {/* Value */}
+                  <span className="shrink-0 text-[11px] font-mono font-bold" style={{ color: getRankColor(rank) }}>
+                    {formatValue(p[tab.key] as number)}
+                  </span>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </div>
   );
 }
-
-import { useMemo } from 'react';

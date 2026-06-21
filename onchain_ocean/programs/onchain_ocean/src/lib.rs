@@ -1,198 +1,306 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, Token, TokenAccount, MintTo, SetAuthority},
+};
+use anchor_spl::token::spl_token::instruction::AuthorityType;
 
-declare_id!("514tYhSb8oavhp61t58dxRVxYSShn3MJkNP6cR2HD4DP");
+declare_id!("BfZLHQYYggHG3gyiEU4Yd8yFxpSdQM6Tyat7QcX6z8nf");
 
-// ── Constants ────────────────────────────────────────────────────────────────
-/// Max byte length for the `developer_tier` string (e.g. "Shark" = 5 chars).
-const MAX_TIER_LEN: usize = 16;
-/// Max byte length for the `pfp_face` string (e.g. "Guppy" = 5 chars).
-const MAX_FACE_LEN: usize = 16;
-/// Max byte length for the `sector` string (e.g. "Infrastructure" = 14 chars).
-const MAX_SECTOR_LEN: usize = 32;
+// ─── Constants ───────────────────────────────────────────────────────────────
+/// Maximum length for the external dynamic API data URI (e.g. metadata links).
+const MAX_URI_LEN: usize = 64;
 
-// ── Program ──────────────────────────────────────────────────────────────────
+// ─── Program ─────────────────────────────────────────────────────────────────
 #[program]
 pub mod onchain_ocean {
     use super::*;
 
-    /// Initializes a new `DeveloperPassport` PDA for the signing wallet.
-    pub fn initialize_passport(ctx: Context<InitializePassport>) -> Result<()> {
-        let passport = &mut ctx.accounts.passport;
-        passport.authority = ctx.accounts.authority.key();
-        passport.contracts_deployed = 0;
-        passport.volume_moved = 0;
-        passport.developer_tier = "Guppy".to_string();
-        passport.pfp_face = "Guppy".to_string();
-        passport.bump = ctx.bumps.passport;
-
-        msg!(
-            "DeveloperPassport initialized for {}",
-            passport.authority
-        );
-        Ok(())
-    }
-
-    /// Initializes a new `StartupRig` PDA for the signing wallet.
-    pub fn initialize_startup_rig(
-        ctx: Context<InitializeStartupRig>,
-        sector: String,
+    /// Registers a new user on the Onchain Ocean, mints a registration NFT, 
+    /// and initializes their UserProfile PDA with metrics and metadata.
+    pub fn register_user(
+        ctx: Context<RegisterUser>,
+        transaction_count: u32,
+        contract_types: u64,
+        onchain_data_uri: String,
     ) -> Result<()> {
+        let user_profile = &mut ctx.accounts.user_profile;
+        
+        // Validate inputs
         require!(
-            sector.len() <= MAX_SECTOR_LEN,
-            OnchainOceanError::SectorTooLong
+            onchain_data_uri.len() <= MAX_URI_LEN,
+            OnchainOceanError::UriTooLong
         );
 
-        let rig = &mut ctx.accounts.startup_rig;
-        rig.company = ctx.accounts.authority.key();
-        rig.sector = sector;
-        rig.active_bounty_tvl = 0;
-        rig.bump = ctx.bumps.startup_rig;
+        // Populate the user profile PDA state
+        user_profile.authority = ctx.accounts.user.key();
+        user_profile.nft_mint = ctx.accounts.nft_mint.key();
+        user_profile.registered_at = Clock::get()?.unix_timestamp;
+        user_profile.message_count = 0;
+        user_profile.last_message_time = 0;
+        user_profile.transaction_count = transaction_count;
+        user_profile.contract_types = contract_types;
+        user_profile.onchain_data_uri = onchain_data_uri;
+        user_profile.bump = ctx.bumps.user_profile;
 
-        msg!("StartupRig initialized for {}", rig.company);
-        Ok(())
-    }
+        // Minting the NFT to the user's ATA
+        let seeds = &[
+            b"user-profile",
+            ctx.accounts.user.key.as_ref(),
+            &[ctx.bumps.user_profile],
+        ];
+        let signer_seeds = &[&seeds[..]];
 
-    /// Updates metrics on an existing `DeveloperPassport` and recalculates
-    /// the `developer_tier` and `pfp_face` based on `contracts_deployed`.
-    ///
-    /// Tier thresholds:
-    /// - 0 contracts  → "Guppy"
-    /// - > 5 contracts → "Crab"
-    /// - > 10 contracts → "Shark"
-    pub fn update_passport_metrics(
-        ctx: Context<UpdatePassportMetrics>,
-        contracts_deployed: u32,
-        volume_moved: u64,
-    ) -> Result<()> {
-        let passport = &mut ctx.accounts.passport;
-
-        // Update raw metrics
-        passport.contracts_deployed = contracts_deployed;
-        passport.volume_moved = volume_moved;
-
-        // Derive tier & face from contracts_deployed
-        let (tier, face) = if contracts_deployed > 10 {
-            ("Shark", "Shark")
-        } else if contracts_deployed > 5 {
-            ("Crab", "Crab")
-        } else {
-            ("Guppy", "Guppy")
+        // 1. Mint 1 token (representing the NFT)
+        let mint_to_accounts = MintTo {
+            mint: ctx.accounts.nft_mint.to_account_info(),
+            to: ctx.accounts.nft_token_account.to_account_info(),
+            authority: user_profile.to_account_info(),
         };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, mint_to_accounts, signer_seeds);
+        token::mint_to(cpi_ctx, 1)?;
 
-        passport.developer_tier = tier.to_string();
-        passport.pfp_face = face.to_string();
-
-        msg!(
-            "Passport updated → tier: {}, face: {}, contracts: {}, volume: {}",
-            tier,
-            face,
-            contracts_deployed,
-            volume_moved
+        // 2. Revoke Mint Authority to lock the supply to 1
+        let set_mint_auth_accounts = SetAuthority {
+            account_or_mint: ctx.accounts.nft_mint.to_account_info(),
+            current_authority: user_profile.to_account_info(),
+        };
+        let set_mint_auth_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            set_mint_auth_accounts,
+            signer_seeds,
         );
+        token::set_authority(
+            set_mint_auth_ctx,
+            AuthorityType::MintTokens,
+            None,
+        )?;
+
+        // 3. Revoke Freeze Authority so the user owns it completely
+        let set_freeze_auth_accounts = SetAuthority {
+            account_or_mint: ctx.accounts.nft_mint.to_account_info(),
+            current_authority: user_profile.to_account_info(),
+        };
+        let set_freeze_auth_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            set_freeze_auth_accounts,
+            signer_seeds,
+        );
+        token::set_authority(
+            set_freeze_auth_ctx,
+            AuthorityType::FreezeAccount,
+            None,
+        )?;
+
+        msg!("User registered. Profile created and NFT minted successfully!");
+        Ok(())
+    }
+
+    /// Processes and sends a batch of messages from one wallet to others.
+    /// Emits onchain events for indexers/clients and updates the user's stats.
+    pub fn send_batch_messages(
+        ctx: Context<SendBatchMessages>,
+        messages: Vec<MessageInput>,
+    ) -> Result<()> {
+        let user_profile = &mut ctx.accounts.user_profile;
+        let current_time = Clock::get()?.unix_timestamp;
+
+        require!(
+            !messages.is_empty(),
+            OnchainOceanError::EmptyMessageBatch
+        );
+
+        for msg in messages.iter() {
+            // Validate message fields
+            require!(
+                msg.content.len() <= 256,
+                OnchainOceanError::MessageTooLong
+            );
+            require!(
+                msg.recipient != Pubkey::default(),
+                OnchainOceanError::InvalidRecipient
+            );
+
+            // Emit the message event on-chain
+            emit!(MessageSent {
+                sender: user_profile.authority,
+                recipient: msg.recipient,
+                content: msg.content.clone(),
+                timestamp: msg.timestamp,
+            });
+        }
+
+        // Increment stats
+        user_profile.message_count = user_profile
+            .message_count
+            .checked_add(messages.len() as u64)
+            .ok_or(OnchainOceanError::NumericalOverflow)?;
+        user_profile.last_message_time = current_time;
+
+        msg!("Sent batch of {} messages successfully.", messages.len());
+        Ok(())
+    }
+
+    /// Updates dynamic user profile metrics/on-chain stats fetched from off-chain APIs.
+    pub fn update_profile_stats(
+        ctx: Context<UpdateProfileStats>,
+        transaction_count: u32,
+        contract_types: u64,
+        onchain_data_uri: String,
+    ) -> Result<()> {
+        let user_profile = &mut ctx.accounts.user_profile;
+
+        require!(
+            onchain_data_uri.len() <= MAX_URI_LEN,
+            OnchainOceanError::UriTooLong
+        );
+
+        user_profile.transaction_count = transaction_count;
+        user_profile.contract_types = contract_types;
+        user_profile.onchain_data_uri = onchain_data_uri;
+
+        msg!("User profile stats updated successfully.");
         Ok(())
     }
 }
 
-// ── Accounts Contexts ────────────────────────────────────────────────────────
+// ─── Accounts Contexts ───────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct InitializePassport<'info> {
+pub struct RegisterUser<'info> {
     #[account(
         init,
-        payer = authority,
-        space = DeveloperPassport::SPACE,
-        seeds = [b"passport", authority.key().as_ref()],
+        payer = user,
+        space = UserProfile::SPACE,
+        seeds = [b"user-profile", user.key().as_ref()],
         bump
     )]
-    pub passport: Account<'info, DeveloperPassport>,
+    pub user_profile: Account<'info, UserProfile>,
+
+    /// The Mint Account of the NFT. Automatically initialized by Anchor.
+    #[account(
+        init,
+        payer = user,
+        mint::decimals = 0,
+        mint::authority = user_profile,
+        mint::freeze_authority = user_profile,
+    )]
+    pub nft_mint: Account<'info, Mint>,
+
+    /// The Associated Token Account for the user. Automatically initialized by Anchor.
+    #[account(
+        init,
+        payer = user,
+        associated_token::mint = nft_mint,
+        associated_token::authority = user,
+    )]
+    pub nft_token_account: Account<'info, TokenAccount>,
 
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub user: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
-pub struct InitializeStartupRig<'info> {
-    #[account(
-        init,
-        payer = authority,
-        space = StartupRig::SPACE,
-        seeds = [b"startup_rig", authority.key().as_ref()],
-        bump
-    )]
-    pub startup_rig: Account<'info, StartupRig>,
-
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UpdatePassportMetrics<'info> {
+pub struct SendBatchMessages<'info> {
     #[account(
         mut,
-        seeds = [b"passport", authority.key().as_ref()],
-        bump = passport.bump,
+        seeds = [b"user-profile", authority.key().as_ref()],
+        bump = user_profile.bump,
         has_one = authority @ OnchainOceanError::UnauthorizedAccess,
     )]
-    pub passport: Account<'info, DeveloperPassport>,
+    pub user_profile: Account<'info, UserProfile>,
 
     pub authority: Signer<'info>,
 }
 
-// ── State Accounts ───────────────────────────────────────────────────────────
+#[derive(Accounts)]
+pub struct UpdateProfileStats<'info> {
+    #[account(
+        mut,
+        seeds = [b"user-profile", authority.key().as_ref()],
+        bump = user_profile.bump,
+        has_one = authority @ OnchainOceanError::UnauthorizedAccess,
+    )]
+    pub user_profile: Account<'info, UserProfile>,
+
+    pub authority: Signer<'info>,
+}
+
+// ─── State Accounts ──────────────────────────────────────────────────────────
 
 #[account]
-pub struct DeveloperPassport {
-    /// The wallet that owns this passport.
+pub struct UserProfile {
+    /// Owner of this user profile.
     pub authority: Pubkey,
-    /// Total smart contracts deployed by this developer.
-    pub contracts_deployed: u32,
-    /// Cumulative volume moved (in lamports or token base units).
-    pub volume_moved: u64,
-    /// Current tier label: "Guppy" | "Crab" | "Shark".
-    pub developer_tier: String,
-    /// Profile-picture face that corresponds to the tier.
-    pub pfp_face: String,
-    /// PDA bump seed for re-derivation.
+    /// NFT mint address minted for the user upon registration.
+    pub nft_mint: Pubkey,
+    /// Unix timestamp when the user registered.
+    pub registered_at: i64,
+    /// Total number of messages sent by this user.
+    pub message_count: u64,
+    /// Unix timestamp of the last message sent.
+    pub last_message_time: i64,
+    /// Total transaction count of the user on-chain (dynamic metric).
+    pub transaction_count: u32,
+    /// Contract types bitmask representing categories of smart contracts used (dynamic metric).
+    pub contract_types: u64,
+    /// Off-chain API data metadata URI (e.g. profile metadata/details).
+    pub onchain_data_uri: String,
+    /// PDA bump seed.
     pub bump: u8,
 }
 
-impl DeveloperPassport {
-    /// Discriminator (8) + Pubkey (32) + u32 (4) + u64 (8)
-    /// + String prefix (4) + MAX_TIER_LEN
-    /// + String prefix (4) + MAX_FACE_LEN
-    /// + bump (1)
-    pub const SPACE: usize = 8 + 32 + 4 + 8 + (4 + MAX_TIER_LEN) + (4 + MAX_FACE_LEN) + 1;
+impl UserProfile {
+    /// Discriminator (8) + Authority (32) + NFT Mint (32) + Registered At (8) 
+    /// + Message Count (8) + Last Message Time (8) + Transaction Count (4) 
+    /// + Contract Types (8) + URI String (4 + MAX_URI_LEN) + Bump (1)
+    pub const SPACE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 4 + 8 + (4 + MAX_URI_LEN) + 1;
 }
 
-#[account]
-pub struct StartupRig {
-    /// The company wallet that owns this rig.
-    pub company: Pubkey,
-    /// Business sector: e.g. "DeFi", "Infrastructure", "Gaming".
-    pub sector: String,
-    /// Total value locked across active bounties (lamports).
-    pub active_bounty_tvl: u64,
-    /// PDA bump seed for re-derivation.
-    pub bump: u8,
+// ─── Struct Types ────────────────────────────────────────────────────────────
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct MessageInput {
+    /// The public key of the recipient wallet.
+    pub recipient: Pubkey,
+    /// The content of the message.
+    pub content: String,
+    /// The timestamp when the message was sent (according to client).
+    pub timestamp: i64,
 }
 
-impl StartupRig {
-    /// Discriminator (8) + Pubkey (32)
-    /// + String prefix (4) + MAX_SECTOR_LEN
-    /// + u64 (8) + bump (1)
-    pub const SPACE: usize = 8 + 32 + (4 + MAX_SECTOR_LEN) + 8 + 1;
+// ─── Events ──────────────────────────────────────────────────────────────────
+
+#[event]
+pub struct MessageSent {
+    #[index]
+    pub sender: Pubkey,
+    #[index]
+    pub recipient: Pubkey,
+    pub content: String,
+    pub timestamp: i64,
 }
 
-// ── Custom Errors ────────────────────────────────────────────────────────────
+// ─── Custom Errors ───────────────────────────────────────────────────────────
 
 #[error_code]
 pub enum OnchainOceanError {
-    #[msg("The provided sector string exceeds the maximum allowed length.")]
-    SectorTooLong,
     #[msg("You are not authorized to modify this account.")]
     UnauthorizedAccess,
+    #[msg("The dynamic onchain data URI exceeds the maximum allowed length (64).")]
+    UriTooLong,
+    #[msg("Message batch cannot be empty.")]
+    EmptyMessageBatch,
+    #[msg("A message in the batch exceeds the maximum allowed length of 256 characters.")]
+    MessageTooLong,
+    #[msg("The recipient of a message is invalid.")]
+    InvalidRecipient,
+    #[msg("A numerical overflow occurred during statistical calculation.")]
+    NumericalOverflow,
 }

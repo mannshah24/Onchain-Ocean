@@ -1,8 +1,20 @@
 import { create } from 'zustand';
-import type { BuilderProfile, CameraState } from '../types';
+import type { BuilderProfile, CameraState, OceanStructure, OceanZone, OceanDecoration, ReefClearing, ThermalVent, CoralArch, LoadingStage, SwimScore, SwimHUD, OceanTheme } from '../types';
+import { OCEAN_THEMES } from '../types';
 import { seedProfiles } from './seedData';
+import { generateOceanLayout } from '../lib/oceanLayout';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { resolve } from '@bonfida/spl-name-service';
+
+// ─── Ocean Layout State ──────────────────────────────────────────
+interface OceanLayout {
+  structures: OceanStructure[];
+  clearings: ReefClearing[];
+  decorations: OceanDecoration[];
+  thermalVent: ThermalVent | null;
+  coralArches: CoralArch[];
+  zones: OceanZone[];
+}
 
 interface OceanStore {
   // --- Core States ---
@@ -14,8 +26,46 @@ interface OceanStore {
   activeRoute: 'lobby' | 'explore' | 'leaderboard' | 'passport';
   connectedAddress: string | null;
   
+  // --- Ocean Layout ---
+  layout: OceanLayout;
+  
+  // --- Loading ---
+  loadStage: LoadingStage;
+  loadProgress: number;
+  loadError: string | null;
+
   // --- 3D Camera State ---
   cameraState: CameraState;
+
+  // --- Theme ---
+  themeIndex: number;
+  theme: OceanTheme;
+
+  // --- Swim Mode ---
+  swimMode: boolean;
+  swimScore: SwimScore;
+  swimHUD: SwimHUD;
+  swimPersonalBest: number;
+
+  // --- Search Feedback ---
+  searchFeedback: {
+    type: 'loading' | 'error';
+    code?: string;
+    username?: string;
+  } | null;
+
+  // --- Zone Announcement ---
+  zoneAnnouncement: { name: string; color: string; population: number } | null;
+
+  // --- Sonar Map ---
+  showSonarMap: boolean;
+
+  // --- Stats ---
+  oceanStats: {
+    totalStructures: number;
+    totalVolume: number;
+    totalTransactions: number;
+  };
 
   // --- Actions ---
   setRoute: (route: 'lobby' | 'explore' | 'leaderboard' | 'passport') => void;
@@ -27,6 +77,15 @@ interface OceanStore {
   setCameraMode: (mode: CameraState['mode']) => void;
   connectWallet: (address: string) => Promise<void>;
   disconnectWallet: () => void;
+  setTheme: (index: number) => void;
+  toggleSwimMode: () => void;
+  setSwimScore: (score: Partial<SwimScore>) => void;
+  setSwimHUD: (hud: Partial<SwimHUD>) => void;
+  toggleSonarMap: () => void;
+  setZoneAnnouncement: (announcement: { name: string; color: string; population: number } | null) => void;
+  regenerateLayout: () => void;
+  setLoadStage: (stage: LoadingStage) => void;
+  setLoadProgress: (progress: number) => void;
 }
 
 // Global Solana Connection Object
@@ -37,7 +96,7 @@ const isAddress = (q: string): boolean => {
   try {
     new PublicKey(q);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 };
@@ -48,9 +107,7 @@ const resolveDomainToAddress = async (domain: string): Promise<string> => {
   try {
     const pubkey = await resolve(connection, cleaned);
     return pubkey.toBase58();
-  } catch (e) {
-    console.warn("Failed to resolve domain via Bonfida SDK:", e);
-    // Fall back to Bonfida REST API endpoint
+  } catch {
     const cleanedName = cleaned.replace('.sol', '');
     const res = await fetch(`https://sns-api.bonfida.com/resolve/${cleanedName}`);
     const data = await res.json();
@@ -61,7 +118,7 @@ const resolveDomainToAddress = async (domain: string): Promise<string> => {
   }
 };
 
-// Registry of recognizable Solana Program IDs mapped to protocol names
+// Registry of recognizable Solana Program IDs
 const PROTOCOL_REGISTRY: Record<string, string> = {
   "JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3": "Jupiter",
   "JUP4bZJvstP14hpfsrrdf5Zvb25ycY8z71vHf5Kkv8K": "Jupiter",
@@ -76,32 +133,21 @@ const PROTOCOL_REGISTRY: Record<string, string> = {
   "6EF8rrecth7m5TGGdhLWABhi47VWmoJQqhYeb53t82t7": "Pump.fun",
   "dRFEymoaaowsjMQ22n664ssd5SXMkz365cVJPHpip8k": "Drift",
   "So1endDq2Ykq6HNDiYB2IQ2dpibkkWUXRP19jq4W8hh": "Solend",
-  "PhoeNiX5ky2gPMLEQJg7TYEZXGrD8xnd4mQRZqoEXAQ": "Phoenix"
+  "PhoeNiX5ky2gPMLEQJg7TYEZXGrD8xnd4mQRZqoEXAQ": "Phoenix",
 };
 
-// Helper to fetch live RPC metrics and format into Onchain Ocean profile
+// Helper to fetch live RPC metrics
 const fetchRealProfileData = async (address: string, domainName?: string): Promise<BuilderProfile> => {
   const pubkey = new PublicKey(address);
 
-  // 1. Fetch balance in SOL
   let balance = 0;
-  try {
-    balance = await connection.getBalance(pubkey);
-  } catch (e) {
-    console.warn("Failed to fetch balance:", e);
-  }
+  try { balance = await connection.getBalance(pubkey); } catch {}
 
-  // 2. Fetch signatures to estimate transaction count and parse timeline/protocols
   let signatures: any[] = [];
-  try {
-    signatures = await connection.getSignaturesForAddress(pubkey, { limit: 100 });
-  } catch (e) {
-    console.warn("Failed to fetch signatures:", e);
-  }
+  try { signatures = await connection.getSignaturesForAddress(pubkey, { limit: 100 }); } catch {}
 
   const txCount = signatures.length === 100 ? 100 + Math.floor(Math.random() * 50) : signatures.length;
 
-  // 3. Resolve wallet age from the oldest retrieved signature timestamp
   let oldestTxTime = Date.now() / 1000;
   if (signatures.length > 0) {
     oldestTxTime = signatures[signatures.length - 1].blockTime || (Date.now() / 1000);
@@ -110,70 +156,50 @@ const fetchRealProfileData = async (address: string, domainName?: string): Promi
     Math.max(0.1, (Date.now() / 1000 - oldestTxTime) / (365 * 24 * 3600)).toFixed(1)
   );
 
-  // 4. Batch query parsed transaction details for the top 10 recent transactions
   const timeline: any[] = [];
   const counterparties = new Set<string>();
   const protocolMap: Record<string, number> = {};
 
-  const sigHashes = signatures.slice(0, 10).map((s) => s.signature);
+  const sigHashes = signatures.slice(0, 10).map((s: any) => s.signature);
   if (sigHashes.length > 0) {
     try {
       const parsedTxs = await connection.getParsedTransactions(sigHashes, {
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed'
+        maxSupportedTransactionVersion: 0, commitment: 'confirmed'
       });
-
       if (parsedTxs) {
-        parsedTxs.forEach((tx) => {
+        parsedTxs.forEach((tx: any) => {
           if (!tx) return;
-
           const signature = tx.transaction.signatures[0];
           const blockTime = tx.blockTime || (Date.now() / 1000);
           const slot = tx.slot;
-
-          // Find SOL delta for the searched address
           let solChange = 0;
           const accountKeys = tx.transaction.message.accountKeys;
           const userIndex = accountKeys.findIndex((acc: any) => {
             const keyStr = acc.pubkey?.toBase58 ? acc.pubkey.toBase58() : acc.toBase58?.() || acc.toString();
             return keyStr === address;
           });
-
           if (userIndex !== -1 && tx.meta) {
             const pre = tx.meta.preBalances[userIndex] || 0;
             const post = tx.meta.postBalances[userIndex] || 0;
             solChange = (post - pre) / 1e9;
           }
-
-          // Scan invoked instructions for recognized protocols
           const invokedInTx = new Set<string>();
           tx.transaction.message.instructions.forEach((ix: any) => {
             const progId = ix.programId?.toBase58 ? ix.programId.toBase58() : ix.programId?.toString() || ix.toString();
-            if (PROTOCOL_REGISTRY[progId]) {
-              invokedInTx.add(PROTOCOL_REGISTRY[progId]);
-            }
+            if (PROTOCOL_REGISTRY[progId]) invokedInTx.add(PROTOCOL_REGISTRY[progId]);
           });
-
           if (tx.meta?.innerInstructions) {
             tx.meta.innerInstructions.forEach((inner: any) => {
               inner.instructions.forEach((ix: any) => {
                 const progId = ix.programId?.toBase58 ? ix.programId.toBase58() : ix.programId?.toString() || ix.toString();
-                if (PROTOCOL_REGISTRY[progId]) {
-                  invokedInTx.add(PROTOCOL_REGISTRY[progId]);
-                }
+                if (PROTOCOL_REGISTRY[progId]) invokedInTx.add(PROTOCOL_REGISTRY[progId]);
               });
             });
           }
+          invokedInTx.forEach((pName) => { protocolMap[pName] = (protocolMap[pName] || 0) + 1; });
 
-          // Count occurrences
-          invokedInTx.forEach((pName) => {
-            protocolMap[pName] = (protocolMap[pName] || 0) + 1;
-          });
-
-          // Check if it's a native SOL transfer or spl-token transfer
           let hasTransfer = false;
           let transferDest = '';
-
           tx.transaction.message.instructions.forEach((ix: any) => {
             const isSystem = ix.program === 'system' || ix.programId?.toBase58?.() === '11111111111111111111111111111111';
             if (isSystem && ix.parsed?.type === 'transfer') {
@@ -192,107 +218,58 @@ const fetchRealProfileData = async (address: string, domainName?: string): Promi
             }
           });
 
-          // Set timeline tags
           let type: 'transfer' | 'deploy' | 'vote' | 'interaction' = 'interaction';
           let label = 'On-chain Protocol Transaction';
           let toAddr = slot.toString();
 
-          if (invokedInTx.has('Jupiter')) {
-            label = 'Swap via Jupiter';
-            type = 'interaction';
-            toAddr = 'JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3';
-          } else if (invokedInTx.has('Raydium')) {
-            label = 'Trade on Raydium';
-            type = 'interaction';
-            toAddr = '675kPX9MNsjWSSySHKa896Bob6C34qkp8sKyBEnj2PP';
-          } else if (invokedInTx.has('Orca')) {
-            label = 'Trade on Orca';
-            type = 'interaction';
-            toAddr = 'whirLbMiicVdio4tUfT68RJHK79u2sRb6WxST2i6bhA';
-          } else if (invokedInTx.has('Tensor')) {
-            label = 'Trade on Tensor';
-            type = 'interaction';
-            toAddr = 'TSWAPEBwA6n4VrFHax81gG4HJcBpTED87qbczz82Swh';
-          } else if (invokedInTx.has('Pump.fun')) {
-            label = 'Interact with Pump.fun';
-            type = 'interaction';
-            toAddr = '6EF8rrecth7m5TGGdhLWABhi47VWmoJQqhYeb53t82t7';
-          } else if (invokedInTx.has('Meteora')) {
-            label = 'Interact with Meteora';
-            type = 'interaction';
-            toAddr = 'LBRaCzEZKz3tL751KGX9JAT5YqjbzEiYy1wKkAT6Rco';
-          } else if (invokedInTx.has('Drift')) {
-            label = 'Drift Protocol Margin';
-            type = 'interaction';
-            toAddr = 'dRFEymoaaowsjMQ22n664ssd5SXMkz365cVJPHpip8k';
-          } else if (hasTransfer || Math.abs(solChange) > 0.0001) {
-            if (solChange < 0) {
-              label = 'Transfer Outbound';
-              type = 'transfer';
-              toAddr = transferDest || (accountKeys[1]?.pubkey?.toBase58() || '');
-            } else {
-              label = 'Transfer Inbound';
-              type = 'transfer';
-              toAddr = address;
-            }
+          if (invokedInTx.has('Jupiter')) { label = 'Swap via Jupiter'; toAddr = 'JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3'; }
+          else if (invokedInTx.has('Raydium')) { label = 'Trade on Raydium'; toAddr = '675kPX9MNsjWSSySHKa896Bob6C34qkp8sKyBEnj2PP'; }
+          else if (invokedInTx.has('Orca')) { label = 'Trade on Orca'; toAddr = 'whirLbMiicVdio4tUfT68RJHK79u2sRb6WxST2i6bhA'; }
+          else if (invokedInTx.has('Tensor')) { label = 'Trade on Tensor'; toAddr = 'TSWAPEBwA6n4VrFHax81gG4HJcBpTED87qbczz82Swh'; }
+          else if (invokedInTx.has('Pump.fun')) { label = 'Interact with Pump.fun'; toAddr = '6EF8rrecth7m5TGGdhLWABhi47VWmoJQqhYeb53t82t7'; }
+          else if (invokedInTx.has('Meteora')) { label = 'Interact with Meteora'; toAddr = 'LBRaCzEZKz3tL751KGX9JAT5YqjbzEiYy1wKkAT6Rco'; }
+          else if (invokedInTx.has('Drift')) { label = 'Drift Protocol Margin'; toAddr = 'dRFEymoaaowsjMQ22n664ssd5SXMkz365cVJPHpip8k'; }
+          else if (hasTransfer || Math.abs(solChange) > 0.0001) {
+            if (solChange < 0) { label = 'Transfer Outbound'; type = 'transfer'; toAddr = transferDest || ''; }
+            else { label = 'Transfer Inbound'; type = 'transfer'; toAddr = address; }
           }
 
-          // Non-system counterparties collection
           accountKeys.slice(0, 10).forEach((acc: any) => {
             const keyStr = acc.pubkey?.toBase58 ? acc.pubkey.toBase58() : acc.toBase58?.() || acc.toString();
-            if (
-              keyStr !== address &&
-              keyStr !== '11111111111111111111111111111111' &&
-              keyStr !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' &&
-              keyStr !== 'TokenzQdBNbLqP55xGR21A4V3285F244f56i56C51Db' &&
-              keyStr !== 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL' &&
-              !PROTOCOL_REGISTRY[keyStr]
-            ) {
-              if (keyStr.length >= 32 && keyStr.length <= 44) {
-                counterparties.add(keyStr);
-              }
+            if (keyStr !== address && keyStr !== '11111111111111111111111111111111' &&
+                keyStr !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' &&
+                !PROTOCOL_REGISTRY[keyStr] && keyStr.length >= 32 && keyStr.length <= 44) {
+              counterparties.add(keyStr);
             }
           });
 
-          // Add to timeline
           if (timeline.length < 5) {
             timeline.push({
-              id: signature,
-              timestamp: blockTime,
+              id: signature, timestamp: blockTime,
               fromAddress: solChange < 0 ? address : (toAddr || 'unknown'),
               toAddress: solChange < 0 ? (toAddr || 'unknown') : address,
-              type: type,
-              amount: Math.abs(solChange) > 0.000001 ? parseFloat(Math.abs(solChange).toFixed(4)) : undefined,
-              label: label
+              type, amount: Math.abs(solChange) > 0.000001 ? parseFloat(Math.abs(solChange).toFixed(4)) : undefined,
+              label
             });
           }
         });
       }
-    } catch (e) {
-      console.warn("Error batch querying transaction logs:", e);
-    }
+    } catch {}
   }
 
-  // Fallback transaction if timeline is empty
   if (timeline.length === 0) {
     timeline.push({
       id: `dyn-tx-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now() / 1000 - 3600,
-      fromAddress: address,
-      toAddress: '11111111111111111111111111111111',
-      type: 'interaction',
-      amount: 0.02,
-      label: 'On-chain Protocol Transaction (Fallback)'
+      fromAddress: address, toAddress: '11111111111111111111111111111111',
+      type: 'interaction', amount: 0.02, label: 'On-chain Transaction'
     });
   }
 
-  // Format detected protocols
   const protocolInteractions = Object.entries(protocolMap).map(([name, count]) => ({
-    name: `${name} (Detected)`,
-    txCount: count
+    name: `${name} (Detected)`, txCount: count
   }));
 
-  // 5. Query reverse domain record lookup
   let resolvedDomain = domainName || '';
   if (!resolvedDomain) {
     try {
@@ -301,246 +278,139 @@ const fetchRealProfileData = async (address: string, domainName?: string): Promi
       if (data.s === 'ok' && data.result && data.result.length > 0) {
         resolvedDomain = `${data.result[0].domain}.sol`;
       }
-    } catch (e) {
-      console.warn("Failed reverse domain lookup:", e);
-    }
+    } catch {}
   }
   if (!resolvedDomain) {
     resolvedDomain = `${address.slice(0, 6).toLowerCase()}...${address.slice(-4).toLowerCase()}.sol`;
   }
 
-  // 6. Query SPL Token holdings to infer communities
   const communitiesJoinedSet = new Set<string>();
   communitiesJoinedSet.add('Superteam Reef (Inferred)');
 
   try {
     const tokenProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
     const tokenAccounts = await connection.getParsedTokenAccountsByOwner(pubkey, { programId: tokenProgram });
-
     let token2022Accounts: any[] = [];
     try {
       const token2022Program = new PublicKey("TokenzQdBNbLqP55xGR21A4V3285F244f56i56C51Db");
       const res = await connection.getParsedTokenAccountsByOwner(pubkey, { programId: token2022Program });
       token2022Accounts = res.value || [];
-    } catch (e) {
-      console.warn("Failed to query Token-2022 accounts:", e);
-    }
+    } catch {}
 
     const allAccounts = [...(tokenAccounts.value || []), ...token2022Accounts];
-
-    allAccounts.forEach((acc) => {
+    allAccounts.forEach((acc: any) => {
       const info = acc.account.data.parsed.info;
       const mint = info.mint;
       const amount = info.tokenAmount.uiAmount || 0;
       const decimals = info.tokenAmount.decimals;
-
       if (amount > 0) {
-        if (mint === 'JUPyiwrYJFskUP4sfdaavEK29ECj5JQLuUR9kySsaWc') {
-          communitiesJoinedSet.add('Jupiter DAO (Inferred)');
-        } else if (mint === 'DezXAZ8z7PnrFcPykJ47xQ2x8Dmm7cKGdM19h5S5Ydx8') {
-          communitiesJoinedSet.add('Bonk Nation (Inferred)');
-        } else if (mint === 'HZ1JovNiFvGr21QCVnXxVnmJbdnU5XXEP2dg1279j755') {
-          communitiesJoinedSet.add('Pythian Oracle (Inferred)');
-        } else if (mint === 'TNSRoZu4KAhBh2sc4ANJ5nc6EMpMR265rw51hA24qRb') {
-          communitiesJoinedSet.add('Tensorians (Inferred)');
-        } else if (mint === 'KMNootg3657nyFY5sb2c5Yy5cx2H69eK3z1SpU939v7') {
-          communitiesJoinedSet.add('Kaminoans (Inferred)');
-        } else if (mint === 'DriFtupZyybb7tLVLLNM9Ncr27uG57sQv1M2g1F9ihV') {
-          communitiesJoinedSet.add('Drift Riders (Inferred)');
-        }
-
-        if (decimals === 0 && amount === 1) {
-          communitiesJoinedSet.add('NFT Collectors (Inferred)');
-        }
+        if (mint === 'JUPyiwrYJFskUP4sfdaavEK29ECj5JQLuUR9kySsaWc') communitiesJoinedSet.add('Jupiter DAO (Inferred)');
+        else if (mint === 'DezXAZ8z7PnrFcPykJ47xQ2x8Dmm7cKGdM19h5S5Ydx8') communitiesJoinedSet.add('Bonk Nation (Inferred)');
+        else if (mint === 'HZ1JovNiFvGr21QCVnXxVnmJbdnU5XXEP2dg1279j755') communitiesJoinedSet.add('Pythian Oracle (Inferred)');
+        else if (mint === 'TNSRoZu4KAhBh2sc4ANJ5nc6EMpMR265rw51hA24qRb') communitiesJoinedSet.add('Tensorians (Inferred)');
+        else if (mint === 'KMNootg3657nyFY5sb2c5Yy5cx2H69eK3z1SpU939v7') communitiesJoinedSet.add('Kaminoans (Inferred)');
+        else if (mint === 'DriFtupZyybb7tLVLLNM9Ncr27uG57sQv1M2g1F9ihV') communitiesJoinedSet.add('Drift Riders (Inferred)');
+        if (decimals === 0 && amount === 1) communitiesJoinedSet.add('NFT Collectors (Inferred)');
       }
     });
-  } catch (e) {
-    console.warn("Failed to fetch token accounts:", e);
-  }
+  } catch {}
 
-  // Wallet profile heuristics for community tags
-  if (walletAgeYears >= 2) {
-    communitiesJoinedSet.add('Solana Veterans (Inferred)');
-  }
-  if (txCount >= 50) {
-    communitiesJoinedSet.add('Active Builders (Inferred)');
-  }
+  if (walletAgeYears >= 2) communitiesJoinedSet.add('Solana Veterans (Inferred)');
+  if (txCount >= 50) communitiesJoinedSet.add('Active Builders (Inferred)');
 
-  const communitiesJoined = Array.from(communitiesJoinedSet);
-
-  // 7. Format counterparties as connected structures
   let connectedAddresses = Array.from(counterparties).slice(0, 5);
-  if (connectedAddresses.length === 0) {
-    connectedAddresses = ['11111111111111111111111111111111'];
-  }
+  if (connectedAddresses.length === 0) connectedAddresses = ['11111111111111111111111111111111'];
 
-  // 8. Deterministic coordinate generation based on address hashing
+  // Coordinates from address hash
   let hash = 0;
-  for (let i = 0; i < address.length; i++) {
-    hash = address.charCodeAt(i) + ((hash << 5) - hash);
-  }
+  for (let i = 0; i < address.length; i++) hash = address.charCodeAt(i) + ((hash << 5) - hash);
   const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
   const radius = 60 + (Math.abs(hash >> 3) % 120);
   const x = Math.round(Math.cos(angle) * radius);
   const z = Math.round(Math.sin(angle) * radius);
 
-  // 9. Classify structure family deterministically based on hash
+  // Classify structure type
   let type: BuilderProfile['type'] = 'wallet';
   let sector: BuilderProfile['sector'] = undefined;
   let projectName: string | undefined = undefined;
   const typeIndex = Math.abs(hash >> 7) % 5;
-
-  if (typeIndex === 0) {
-    type = 'wallet'; // Spire (Coral Tower)
-  } else if (typeIndex === 1) {
-    type = 'startup';
-    sector = 'DeFi';
-    projectName = 'DeFi Hub'; // Rig (Glass Biodome)
-  } else if (typeIndex === 2) {
-    type = 'startup';
-    sector = 'Infrastructure';
-    projectName = 'RPC Terminal'; // Research Station
-  } else if (typeIndex === 3) {
-    type = 'startup';
-    sector = 'Social';
-    projectName = 'Social Pod'; // Community Cluster
-  } else {
-    type = 'community';
-    projectName = 'DAO Colony'; // Citadel (Reef Citadel)
-  }
+  if (typeIndex === 1) { type = 'startup'; sector = 'DeFi'; projectName = 'DeFi Hub'; }
+  else if (typeIndex === 2) { type = 'startup'; sector = 'Infrastructure'; projectName = 'RPC Terminal'; }
+  else if (typeIndex === 3) { type = 'startup'; sector = 'Social'; projectName = 'Social Pod'; }
+  else if (typeIndex === 4) { type = 'community'; projectName = 'DAO Colony'; }
 
   return {
-    address,
-    domain: resolvedDomain,
-    type,
-    sector,
-    projectName,
-    walletAgeYears,
-    txCount,
-    solVolume: parseFloat((balance / 1e9).toFixed(2)), // Real SOL balance
-    coordinates: [x, z],
-    protocolInteractions,
-    communitiesJoined,
-    connectedAddresses,
-    timeline
+    address, domain: resolvedDomain, type, sector, projectName,
+    walletAgeYears, txCount, solVolume: parseFloat((balance / 1e9).toFixed(2)),
+    coordinates: [x, z], protocolInteractions,
+    communitiesJoined: Array.from(communitiesJoinedSet),
+    connectedAddresses, timeline
   };
 };
 
 // Helper to generate a procedural profile for unknown wallets (fallback)
 const buildDynamicProfile = (query: string): BuilderProfile => {
   const isDomain = query.endsWith('.sol');
-  const address = isDomain
-    ? `SNS${Math.random().toString(36).substring(2, 10).toUpperCase()}xMj`
-    : query;
-  
-  const qLower = query.toLowerCase();
-  let type: BuilderProfile['type'] = 'wallet';
-  let sector: BuilderProfile['sector'] = undefined;
-  let communitySize: number | undefined = undefined;
-  let projectName: string | undefined = undefined;
-
-  // Classify structure family based on keywords in query
-  if (qLower.includes('community')) {
-    type = 'community';
-    communitySize = Math.floor(Math.random() * 2000 + 100);
-  } else if (qLower.includes('social') || qLower.includes('dao') || qLower.includes('cluster')) {
-    type = 'startup';
-    sector = 'Social';
-    projectName = isDomain ? query.split('.')[0] : 'Social Pod';
-  } else if (qLower.includes('infra') || qLower.includes('rpc') || qLower.includes('station') || qLower.includes('research')) {
-    type = 'startup';
-    sector = 'Infrastructure';
-    projectName = isDomain ? query.split('.')[0] : 'Research Node';
-  } else if (qLower.includes('defi') || qLower.includes('dex') || qLower.includes('swap') || qLower.includes('rig') || qLower.includes('dome')) {
-    type = 'startup';
-    sector = 'DeFi';
-    projectName = isDomain ? query.split('.')[0] : 'DeFi Hub';
-  } else if (qLower.includes('blockchain') || qLower.includes('vent') || qLower.includes('solana') || qLower.includes('genesis')) {
-    type = 'blockchain';
-  }
-
-  // Generate random coordinates inside a coordinate shelf (away from core genesis center)
+  const address = isDomain ? `SNS${Math.random().toString(36).substring(2, 10).toUpperCase()}xMj` : query;
   const angle = Math.random() * Math.PI * 2;
-  const radius = 100 + Math.random() * 150; // Distance from center
-  const x = Math.round(Math.cos(angle) * radius);
-  const z = Math.round(Math.sin(angle) * radius);
-
+  const radius = 100 + Math.random() * 150;
   return {
-    address,
-    domain: isDomain ? query : `${query.slice(0, 6).toLowerCase()}.sol`,
-    type,
-    sector,
-    communitySize,
-    projectName,
-    walletAgeYears: parseFloat((Math.random() * 4 + 0.1).toFixed(1)),
-    txCount: Math.floor(Math.random() * 800 + 5),
-    solVolume: Math.floor(Math.random() * 2500 + 2),
-    coordinates: [x, z],
-    protocolInteractions: [
-      { name: 'Jupiter', txCount: Math.floor(Math.random() * 50) },
-      { name: 'Orca', txCount: Math.floor(Math.random() * 15) }
-    ],
-    communitiesJoined: ['Superteam Reef'],
-    connectedAddresses: ['11111111111111111111111111111111'],
-    timeline: [
-      {
-        id: `dyn-tx-1`,
-        timestamp: Date.now() / 1000 - 3600,
-        fromAddress: address,
-        toAddress: '11111111111111111111111111111111',
-        type: 'transfer',
-        amount: parseFloat((Math.random() * 10).toFixed(2)),
-        label: 'Network Activation'
-      }
-    ]
+    address, domain: isDomain ? query : `${query.slice(0, 6).toLowerCase()}.sol`,
+    type: 'wallet', walletAgeYears: parseFloat((Math.random() * 4 + 0.1).toFixed(1)),
+    txCount: Math.floor(Math.random() * 800 + 5), solVolume: Math.floor(Math.random() * 2500 + 2),
+    coordinates: [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)],
+    protocolInteractions: [{ name: 'Jupiter', txCount: Math.floor(Math.random() * 50) }],
+    communitiesJoined: ['Superteam Reef'], connectedAddresses: ['11111111111111111111111111111111'],
+    timeline: [{
+      id: `dyn-tx-1`, timestamp: Date.now() / 1000 - 3600,
+      fromAddress: address, toAddress: '11111111111111111111111111111111',
+      type: 'transfer', amount: parseFloat((Math.random() * 10).toFixed(2)), label: 'Network Activation'
+    }]
   };
 };
 
-// Helper function to calculate monumental, low-angle hero-shot compositions per structure family
-const getHeroFraming = (profile: BuilderProfile): { position: [number, number, number]; lookAt: [number, number, number] } => {
-  const [tx, tz] = [profile.coordinates[0] / 3, profile.coordinates[1] / 3];
-  
-  switch (profile.type) {
-    case 'wallet': // Wallet Spire (Wallet Tower Campus)
-      return {
-        position: [tx + 11, 3.5, tz + 20],
-        lookAt: [tx, 11.5, tz],
-      };
-    case 'startup':
-      if (profile.sector === 'Infrastructure') { // ResearchStation (Infrastructure Research Megaplex)
-        return {
-          position: [tx + 12, 3.2, tz + 18],
-          lookAt: [tx, 8.0, tz],
-        };
-      }
-      if (profile.sector === 'Social') { // CommunityCluster (Social Campus)
-        return {
-          position: [tx + 12, 3.2, tz + 18],
-          lookAt: [tx, 8.0, tz],
-        };
-      }
-      // Protocol HQ (Rig Complex)
-      return {
-        position: [tx + 12, 3.0, tz + 18],
-        lookAt: [tx, 8.5, tz],
-      };
-    case 'community': // Citadel (Community Civic District)
-      return {
-        position: [tx + 13, 2.8, tz + 19],
-        lookAt: [tx, 7.8, tz],
-      };
-    case 'blockchain': // Vent (Blockchain Vent)
-      return {
-        position: [tx + 9, 2.5, tz + 15],
-        lookAt: [tx, 6.0, tz],
-      };
-    default:
-      return {
-        position: [tx + 11, 3.5, tz + 17],
-        lookAt: [tx, 7.0, tz],
-      };
-  }
+// Camera framing per structure type
+const getHeroFraming = (structure: OceanStructure): { position: [number, number, number]; lookAt: [number, number, number] } => {
+  const sf = 0.06;
+  const tx = structure.position[0] * sf;
+  const tz = structure.position[2] * sf;
+  const h = Math.max(3, structure.height * 0.04);
+  const w = Math.max(2, structure.width * 0.15);
+  const d = Math.max(2, structure.depth * 0.15);
+
+  const dist = Math.max(14, h * 0.9 + Math.max(w, d) * 1.2);
+  return {
+    position: [tx + dist * 0.6, h * 0.7 + 6, tz + dist * 0.8],
+    lookAt: [tx, h * 0.5, tz],
+  };
 };
+
+// Generate initial layout from seed data
+function computeInitialLayout(profiles: BuilderProfile[]): OceanLayout {
+  if (profiles.length === 0) {
+    return { structures: [], clearings: [], decorations: [], thermalVent: null, coralArches: [], zones: [] };
+  }
+  const result = generateOceanLayout(profiles);
+  return {
+    structures: result.structures,
+    clearings: result.clearings,
+    decorations: result.decorations,
+    thermalVent: result.thermalVent,
+    coralArches: result.coralArches,
+    zones: result.zones,
+  };
+}
+
+function computeStats(profiles: BuilderProfile[]) {
+  return {
+    totalStructures: profiles.length,
+    totalVolume: profiles.reduce((s, p) => s + p.solVolume, 0),
+    totalTransactions: profiles.reduce((s, p) => s + p.txCount, 0),
+  };
+}
+
+const initialLayout = computeInitialLayout(seedProfiles);
+const initialStats = computeStats(seedProfiles);
 
 export const useOceanStore = create<OceanStore>((set, get) => ({
   // --- Initial States ---
@@ -552,6 +422,12 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
   activeRoute: 'lobby',
   connectedAddress: null,
   
+  layout: initialLayout,
+  
+  loadStage: 'ready',
+  loadProgress: 100,
+  loadError: null,
+
   cameraState: {
     position: [0, 25, 45],
     lookAt: [0, 0, 0],
@@ -559,9 +435,22 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
     animating: false,
   },
 
+  themeIndex: 0,
+  theme: OCEAN_THEMES[0],
+
+  swimMode: false,
+  swimScore: { score: 0, earned: 0, combo: 0, collected: 0, maxCombo: 1 },
+  swimHUD: { speed: 0, depth: 0 },
+  swimPersonalBest: 0,
+
+  searchFeedback: null,
+  zoneAnnouncement: null,
+  showSonarMap: false,
+
+  oceanStats: initialStats,
+
   // --- Core Actions ---
   setRoute: (route) => set({ activeRoute: route }),
-  
   setSearchQuery: (query) => set({ searchQuery: query }),
   
   setSelectedAddress: (address) => {
@@ -570,15 +459,14 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
       get().setCameraMode('free-float');
       return;
     }
-    
-    const profile = get().profiles.find(p => p.address === address || p.domain === address);
-    if (profile) {
+    const structure = get().layout.structures.find(s => s.address === address || s.domain === address);
+    if (structure) {
       set({ 
-        selectedAddress: profile.address, 
+        selectedAddress: structure.address, 
         activeRoute: 'passport',
         cameraState: {
           ...get().cameraState,
-          ...getHeroFraming(profile),
+          ...getHeroFraming(structure),
           mode: 'focused',
           animating: true
         }
@@ -590,7 +478,7 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
     const trimmed = query.trim();
     if (!trimmed) return;
 
-    set({ isSearching: true, sonarActive: true });
+    set({ isSearching: true, sonarActive: true, searchFeedback: { type: 'loading' } });
 
     let matchAddress = '';
     let domainName = '';
@@ -599,51 +487,74 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
       if (isAddress(trimmed)) {
         matchAddress = trimmed;
       } else {
-        // Resolve .sol domain on-chain or via Bonfida proxy API
         domainName = trimmed.toLowerCase().endsWith('.sol') ? trimmed : `${trimmed}.sol`;
         matchAddress = await resolveDomainToAddress(domainName);
       }
 
-      // Check if profile is already loaded
       let match = get().profiles.find(p => p.address === matchAddress);
+      let newLayout = get().layout;
 
       if (!match) {
-        // Fetch real Solana ledger stats
         match = await fetchRealProfileData(matchAddress, domainName);
-        set(state => ({ profiles: [...state.profiles, match!] }));
+        const newProfiles = [...get().profiles, match];
+        newLayout = computeInitialLayout(newProfiles);
+        set(() => ({ 
+          profiles: newProfiles,
+          layout: newLayout,
+          oceanStats: computeStats(newProfiles),
+        }));
       }
 
-      set({
-        selectedAddress: match.address,
-        activeRoute: 'passport',
-        isSearching: false,
-        sonarActive: false,
-        cameraState: {
-          ...getHeroFraming(match),
-          mode: 'focused',
-          animating: true,
-        }
-      });
+      const structure = newLayout.structures.find(s => s.address === matchAddress);
+      if (structure) {
+        set({
+          selectedAddress: matchAddress,
+          activeRoute: 'passport',
+          isSearching: false,
+          sonarActive: false,
+          searchFeedback: null,
+          cameraState: {
+            ...getHeroFraming(structure),
+            mode: 'focused',
+            animating: true,
+          }
+        });
+      } else {
+        set({ isSearching: false, sonarActive: false });
+      }
     } catch (e) {
-      console.warn("Failed resolving live ledger profile, falling back to simulated data:", e);
-      // Graceful fallback to dynamic simulated profile so app doesn't break
+      console.warn("Failed resolving ledger profile, creating dynamic profile:", e);
       let match = get().profiles.find(p => p.address.toLowerCase() === trimmed.toLowerCase() || p.domain?.toLowerCase() === trimmed.toLowerCase());
+      let newLayout = get().layout;
+
       if (!match) {
         match = buildDynamicProfile(trimmed);
-        set(state => ({ profiles: [...state.profiles, match!] }));
+        const newProfiles = [...get().profiles, match];
+        newLayout = computeInitialLayout(newProfiles);
+        set(() => ({ 
+          profiles: newProfiles,
+          layout: newLayout,
+          oceanStats: computeStats(newProfiles),
+        }));
       }
 
-      set({
-        selectedAddress: match.address,
-        activeRoute: 'passport',
-        isSearching: false,
-        sonarActive: false,
-        cameraState: {
-          ...getHeroFraming(match),
-          mode: 'focused',
-          animating: true,
-        }
-      });
+      const structure = newLayout.structures.find(s => s.address === match.address);
+      if (structure) {
+        set({
+          selectedAddress: match.address,
+          activeRoute: 'passport',
+          isSearching: false,
+          sonarActive: false,
+          searchFeedback: null,
+          cameraState: {
+            ...getHeroFraming(structure),
+            mode: 'focused',
+            animating: true,
+          }
+        });
+      } else {
+        set({ isSearching: false, sonarActive: false });
+      }
     }
   },
 
@@ -651,10 +562,13 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
     set({
       selectedAddress: null,
       searchQuery: '',
-      activeRoute: 'explore',
+      activeRoute: 'lobby',
+      searchFeedback: null,
       cameraState: {
         ...get().cameraState,
-        mode: 'free-float',
+        position: [0, 25, 45],
+        lookAt: [0, 0, 0],
+        mode: 'cinematic-panning',
         animating: false
       }
     });
@@ -670,18 +584,16 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
 
   connectWallet: async (address) => {
     let match = get().profiles.find(p => p.address === address);
-
     if (!match) {
       try {
         match = await fetchRealProfileData(address);
-        set(state => ({ profiles: [...state.profiles, match!] }));
-      } catch (e) {
-        console.warn("Failed to fetch real profile data for connected wallet:", e);
+      } catch {
         match = buildDynamicProfile(address);
-        set(state => ({ profiles: [...state.profiles, match!] }));
       }
+      const newProfiles = [...get().profiles, match];
+      const newLayout = computeInitialLayout(newProfiles);
+      set({ profiles: newProfiles, layout: newLayout, oceanStats: computeStats(newProfiles) });
     }
-
     set({ connectedAddress: match.address });
     get().setSelectedAddress(match.address);
   },
@@ -689,5 +601,48 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
   disconnectWallet: () => {
     set({ connectedAddress: null });
     get().resetSearch();
-  }
+  },
+
+  setTheme: (index) => {
+    const clamped = Math.max(0, Math.min(OCEAN_THEMES.length - 1, index));
+    set({ themeIndex: clamped, theme: OCEAN_THEMES[clamped] });
+    if (typeof window !== 'undefined') {
+      const themes = ['abyssal', 'bioluminescent', 'reef-sunrise', 'neon-depths'];
+      document.documentElement.setAttribute('data-theme', themes[clamped]);
+      localStorage.setItem('ocean_theme', String(clamped));
+    }
+  },
+
+  toggleSwimMode: () => set(state => {
+    const newSwim = !state.swimMode;
+    return {
+      swimMode: newSwim,
+      swimScore: newSwim ? { score: 0, earned: 0, combo: 0, collected: 0, maxCombo: 1 } : state.swimScore,
+      cameraState: {
+        ...state.cameraState,
+        mode: newSwim ? 'swim' : 'free-float',
+      }
+    };
+  }),
+
+  setSwimScore: (score) => set(state => ({
+    swimScore: { ...state.swimScore, ...score }
+  })),
+
+  setSwimHUD: (hud) => set(state => ({
+    swimHUD: { ...state.swimHUD, ...hud }
+  })),
+
+  toggleSonarMap: () => set(state => ({ showSonarMap: !state.showSonarMap })),
+
+  setZoneAnnouncement: (announcement) => set({ zoneAnnouncement: announcement }),
+
+  regenerateLayout: () => {
+    const profiles = get().profiles;
+    const newLayout = computeInitialLayout(profiles);
+    set({ layout: newLayout });
+  },
+
+  setLoadStage: (stage) => set({ loadStage: stage }),
+  setLoadProgress: (progress) => set({ loadProgress: progress }),
 }));

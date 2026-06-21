@@ -12,15 +12,21 @@ interface DroneData {
 }
 
 export default function TrafficSystem() {
-  const profiles = useOceanStore((state) => state.profiles);
+  const layout = useOceanStore((state) => state.layout);
   const droneMeshRef = useRef<THREE.InstancedMesh>(null);
   
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   // Pre-resolve structure coordinates
   const targets = useMemo(() => {
-    return profiles.map((p) => new THREE.Vector3(p.coordinates[0] / 3, 3 + Math.random() * 8, p.coordinates[1] / 3));
-  }, [profiles]);
+    const sf = 0.06;
+    return layout.structures.map((s) => {
+      const tx = s.position[0] * sf;
+      const tz = s.position[2] * sf;
+      const h = Math.max(3, s.height * 0.04);
+      return new THREE.Vector3(tx, h * 0.5 + Math.random() * 3, tz);
+    });
+  }, [layout.structures]);
 
   // Set up 150 transaction light drones
   const droneCount = 150;

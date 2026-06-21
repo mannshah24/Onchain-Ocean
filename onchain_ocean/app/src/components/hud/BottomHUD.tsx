@@ -1,53 +1,162 @@
+import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useOceanStore } from '../../store/useOceanStore';
-import { Compass, Move, MousePointer, HelpCircle } from 'lucide-react';
+import { Zap, Navigation, Gauge } from 'lucide-react';
+
 
 export default function BottomHUD() {
+  const activeRoute = useOceanStore((state) => state.activeRoute);
+  const swimMode = useOceanStore((state) => state.swimMode);
+  const swimScore = useOceanStore((state) => state.swimScore);
+  const swimHUD = useOceanStore((state) => state.swimHUD);
+  const theme = useOceanStore((state) => state.theme);
+  const zoneAnnouncement = useOceanStore((state) => state.zoneAnnouncement);
   const cameraState = useOceanStore((state) => state.cameraState);
+  const swimPersonalBest = useOceanStore((state) => state.swimPersonalBest);
 
-  // Dynamically calculate ocean depth based on camera height (Y axis)
-  // Higher Y => closer to surface (less depth)
-  // Lower Y => closer to seabed (more depth)
-  const cameraY = cameraState?.position?.[1] ?? 25;
-  const depth = Math.round(1600 - cameraY * 12.8);
+  const [showZone, setShowZone] = useState(false);
+
+  // Zone announcement auto-dismiss
+  useEffect(() => {
+    if (zoneAnnouncement) {
+      setShowZone(true);
+      const timer = setTimeout(() => setShowZone(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [zoneAnnouncement]);
+
+  if (activeRoute === 'lobby') return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 h-14 flex items-center justify-between z-40 select-none pointer-events-none font-mono text-[10px]">
+    <>
+      {/* Zone Announcement */}
+      <AnimatePresence>
+        {showZone && zoneAnnouncement && (
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -30 }}
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-2.5 rounded-2xl border glass-panel pointer-events-none select-none"
+            style={{ borderColor: `${zoneAnnouncement.color}40` }}
+          >
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: zoneAnnouncement.color, boxShadow: `0 0 8px ${zoneAnnouncement.color}80` }}
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-heading font-bold text-xs tracking-wider text-white">
+                {zoneAnnouncement.name}
+              </span>
+              <span className="text-[9px] font-mono text-slate-500">
+                {zoneAnnouncement.population} structures
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Left Capsule: Dynamic Ocean Depth */}
-      <div className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/10 glass-panel shadow-lg">
-        <Compass size={12} className="text-cyan-400 animate-spin-slow" />
-        <span className="text-slate-400">Depth</span>
-        <span className="text-cyan-400 font-bold tracking-wide">{depth.toLocaleString()} m</span>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      {/* Bottom HUD Bar */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto select-none">
+        {swimMode ? (
+          // ─── Swim Mode HUD ───
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-4 px-6 py-3 rounded-2xl border glass-panel shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+            style={{ borderColor: `${theme.accent}30` }}
+          >
+            {/* Score */}
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">SCORE</span>
+              <span className="text-lg font-mono font-bold swim-hud-value" style={{ color: theme.accent }}>
+                {swimScore.score.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Combo */}
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">COMBO</span>
+              <span className="flex items-center gap-1">
+                <Zap size={12} style={{ color: swimScore.combo > 0 ? theme.accent : 'rgb(100,116,139)' }} />
+                <span className="text-sm font-mono font-bold text-white swim-hud-value">
+                  x{swimScore.combo}
+                </span>
+              </span>
+            </div>
+
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Speed */}
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">SPEED</span>
+              <span className="flex items-center gap-1">
+                <Gauge size={12} className="text-slate-400" />
+                <span className="text-sm font-mono font-bold text-white swim-hud-value">
+                  {swimHUD.speed.toFixed(1)}
+                </span>
+              </span>
+            </div>
+
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Depth */}
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">DEPTH</span>
+              <span className="text-sm font-mono font-bold text-white swim-hud-value">
+                {Math.abs(swimHUD.depth).toFixed(0)}m
+              </span>
+            </div>
+
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Collected */}
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">FOUND</span>
+              <span className="text-sm font-mono font-bold" style={{ color: theme.accent }}>
+                {swimScore.collected}
+              </span>
+            </div>
+
+            {/* Personal best */}
+            {swimPersonalBest > 0 && (
+              <>
+                <div className="w-px h-8 bg-white/10" />
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="text-[8px] font-heading font-semibold tracking-wider uppercase text-slate-500">BEST</span>
+                  <span className="text-sm font-mono font-bold text-amber-400 swim-hud-value">
+                    {swimPersonalBest.toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
+          </motion.div>
+        ) : (
+          // ─── Normal Mode Status Bar ───
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-4 px-5 py-2 rounded-full border border-white/8 glass-panel shadow-lg"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
+              <Navigation size={10} style={{ color: theme.accent }} />
+              <span>
+                {cameraState.position[0].toFixed(0)}, {cameraState.position[2].toFixed(0)}
+              </span>
+            </div>
+            <div className="w-px h-4 bg-white/10" />
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
+              <span style={{ color: theme.accent }}>◉</span>
+              <span>{cameraState.mode.replace('-', ' ')}</span>
+            </div>
+            <div className="w-px h-4 bg-white/10" />
+            <div className="text-[10px] font-mono" style={{ color: theme.accent }}>
+              WASD + Mouse to Navigate
+            </div>
+          </motion.div>
+        )}
       </div>
-
-      {/* Center: Navigation Instructions */}
-      <div className="hidden sm:flex pointer-events-auto items-center gap-6 px-6 py-2.5 rounded-full border border-white/5 bg-ocean-bg/60 backdrop-blur-md shadow-md text-slate-400">
-        <div className="flex items-center gap-1.5">
-          <Move size={11} className="text-slate-500" />
-          <span>Drag to look around</span>
-        </div>
-        <span className="text-white/10">|</span>
-        <div className="flex items-center gap-1.5">
-          <HelpCircle size={11} className="text-slate-500" />
-          <span>Scroll to zoom</span>
-        </div>
-        <span className="text-white/10">|</span>
-        <div className="flex items-center gap-1.5">
-          <MousePointer size={11} className="text-slate-500" />
-          <span>Click on any structure</span>
-        </div>
-      </div>
-
-      {/* Right Capsule: Online counter */}
-      <div className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/10 glass-panel shadow-lg">
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-        </span>
-        <span className="text-slate-200 font-semibold">2,345 Online explorers</span>
-      </div>
-
-    </div>
+    </>
   );
 }

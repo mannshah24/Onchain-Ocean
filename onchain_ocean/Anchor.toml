@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-onchain_ocean = "514tYhSb8oavhp61t58dxRVxYSShn3MJkNP6cR2HD4DP"
+onchain_ocean = "BfZLHQYYggHG3gyiEU4Yd8yFxpSdQM6Tyat7QcX6z8nf"
 
 [registry]
 url = "https://api.apr.dev"

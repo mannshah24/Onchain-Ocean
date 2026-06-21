@@ -1,152 +1,203 @@
 import { Canvas } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import { useOceanStore } from '../../store/useOceanStore';
 import CameraController from './CameraController';
 import Environment from './Environment';
 import CitySkyline from './CitySkyline';
 import OceanLife from './OceanLife';
 import TrafficSystem from './TrafficSystem';
-import Spire from './Structures/Spire';
-import Rig from './Structures/Rig';
-import Citadel from './Structures/Citadel';
-import Vent from './Structures/Vent';
-import ResearchStation from './Structures/ResearchStation';
-import CommunityCluster from './Structures/CommunityCluster';
+import OceanBuilding3D from './OceanBuilding3D';
 
 export default function WorldCanvas() {
-  const profiles = useOceanStore((state) => state.profiles);
+  const layout = useOceanStore((state) => state.layout);
   const resetSearch = useOceanStore((state) => state.resetSearch);
   const selectedAddress = useOceanStore((state) => state.selectedAddress);
   const setSelectedAddress = useOceanStore((state) => state.setSelectedAddress);
+  const theme = useOceanStore((state) => state.theme);
 
-  // Helper to resolve badge labels and emojis per structure type
-  const getLabelInfo = (profile: typeof profiles[0]) => {
-    switch (profile.type) {
-      case 'wallet':
-        return { emoji: '🧬', category: 'Developer', name: profile.domain || 'Dev Spire' };
-      case 'startup':
-        if (profile.sector === 'Infrastructure') {
-          return { emoji: '📡', category: 'Infrastructure', name: profile.projectName || 'Research Node' };
-        }
-        if (profile.sector === 'Social') {
-          return { emoji: '🌱', category: 'Social Shelf', name: profile.projectName || 'Social Campus' };
-        }
-        return { emoji: '💸', category: 'DeFi Hub', name: profile.projectName || 'Startup Rig' };
-      case 'community':
-        return { emoji: '🏛️', category: 'Community', name: profile.projectName || 'Reef Citadel' };
-      case 'blockchain':
-        return { emoji: '💎', category: 'Blockchain L1', name: profile.projectName || 'Genesis crystal' };
-      default:
-        return { emoji: '⚓', category: 'Structure', name: profile.domain || 'Ocean Node' };
-    }
-  };
+  const structures = layout.structures;
+
+  // Determine which buildings are dimmed (when one is focused)
+  const hasFocused = !!selectedAddress;
 
   return (
     <div
       className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing select-none"
-      onDoubleClick={resetSearch} // Double click background to return home
+      onDoubleClick={resetSearch}
     >
       <Canvas
-        camera={{ position: [0, 25, 45], fov: 50, near: 0.1, far: 350 }}
+        camera={{ position: [0, 25, 45], fov: 50, near: 0.1, far: 600 }}
         gl={{ antialias: true, toneMapping: 3 /* ACESFilmic */ }}
         shadows
       >
-        {/* --- Background deep ocean color (matches fog) --- */}
-        <color attach="background" args={['#041029']} />
+        {/* Background color matching ocean theme */}
+        <color attach="background" args={[theme.bgColor]} />
 
-        {/* --- Ambient Scene Environment --- */}
+        {/* Ambient Scene Environment */}
         <Environment />
 
-        {/* --- City Skyline Silhouettes & Landmark Pillars --- */}
+        {/* City Skyline Silhouettes */}
         <CitySkyline />
 
-        {/* --- Living Ocean Marine Life & Atmosphere --- */}
+        {/* Living Ocean Marine Life */}
         <OceanLife />
 
-        {/* --- Glowing Transaction Traffic System --- */}
+        {/* Transaction Traffic System */}
         <TrafficSystem />
 
-        {/* --- Smooth Motion Camera Controller --- */}
+        {/* Camera Controller */}
         <CameraController />
 
-        {/* --- Floating 3D Billboard Labels --- */}
+        {/* ── Layout-Driven Ocean Structures ── */}
         <group>
-          {profiles.map((profile) => {
-            const [x, z] = profile.coordinates;
-            const tx = x / 3;
-            const tz = z / 3;
-            
-            // Adjust height based on structure type
-            let labelY = 12;
-            if (profile.type === 'wallet') labelY = 28;
-            else if (profile.type === 'startup' && profile.sector === 'Infrastructure') labelY = 18;
-            else if (profile.type === 'startup' && profile.sector === 'Social') labelY = 14;
-            else if (profile.type === 'startup') labelY = 16;
-            else if (profile.type === 'community') labelY = 16;
-            else if (profile.type === 'blockchain') labelY = 9;
+          {structures.map((structure) => (
+            <OceanBuilding3D
+              key={structure.address}
+              structure={structure}
+              focused={selectedAddress === structure.address}
+              dimmed={hasFocused && selectedAddress !== structure.address}
+              onClick={(addr) => setSelectedAddress(addr)}
+            />
+          ))}
+        </group>
 
-            const isSelected = selectedAddress === profile.address;
-            const info = getLabelInfo(profile);
+        {/* ── Ocean Floor Ground Plane ── */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
+          <planeGeometry args={[800, 800]} />
+          <meshStandardMaterial
+            color="#040d1a"
+            roughness={0.95}
+            metalness={0.1}
+            emissive="#020810"
+            emissiveIntensity={0.3}
+          />
+        </mesh>
 
+        {/* ── Thermal Vent Trench ── */}
+        {layout.thermalVent && (() => {
+          const vent = layout.thermalVent;
+          const sf = 0.06;
+          const cx = ((vent.x + vent.width / 2) * sf);
+          const cz = vent.centerZ * sf;
+          const w = vent.width * sf;
+          const l = vent.length * sf;
+          return (
+            <group position={[cx, -0.5, cz]}>
+              <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[w, l]} />
+                <meshStandardMaterial
+                  color="#0a0015"
+                  emissive="#1a0030"
+                  emissiveIntensity={1.5}
+                  roughness={0.9}
+                  transparent
+                  opacity={0.8}
+                />
+              </mesh>
+              {/* Vent glow particles */}
+              {Array.from({ length: 5 }).map((_, i) => (
+                <mesh key={`vent-glow-${i}`} position={[(i - 2) * w / 5, 0.2, 0]}>
+                  <sphereGeometry args={[0.3, 8, 8]} />
+                  <meshBasicMaterial color="#a855f7" transparent opacity={0.4} />
+                </mesh>
+              ))}
+            </group>
+          );
+        })()}
+
+        {/* ── Coral Arches (Bridge equiv) ── */}
+        {layout.coralArches.map((arch, i) => {
+          const sf = 0.06;
+          return (
+            <group key={`arch-${i}`} position={[arch.position[0] * sf, 0, arch.position[2] * sf]}>
+              <mesh rotation={[0, arch.rotation, 0]}>
+                <torusGeometry args={[arch.width * sf * 0.3, 0.5, 8, 16, Math.PI]} />
+                <meshStandardMaterial
+                  color="#0f6b5f"
+                  emissive="#14b8a6"
+                  emissiveIntensity={0.8}
+                  roughness={0.7}
+                />
+              </mesh>
+            </group>
+          );
+        })}
+
+        {/* ── Zone Markers ── */}
+        {layout.zones.map((zone) => {
+          const sf = 0.06;
+          return (
+            <group key={zone.id} position={[zone.center[0] * sf, 0.5, zone.center[2] * sf]}>
+              {/* Zone glow disc */}
+              <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                <circleGeometry args={[3, 32]} />
+                <meshBasicMaterial
+                  color={zone.color}
+                  transparent
+                  opacity={0.08}
+                  depthWrite={false}
+                />
+              </mesh>
+            </group>
+          );
+        })}
+
+        {/* ── Decorations: Bioluminescent Nodes ── */}
+        {layout.decorations
+          .filter(d => d.type === 'biolumNode')
+          .slice(0, 50)
+          .map((d, i) => {
+            const sf = 0.06;
             return (
-              <Html
-                key={`label-${profile.address}`}
-                position={[tx, labelY, tz]}
-                center
-                distanceFactor={18}
-                style={{
-                  pointerEvents: 'auto',
-                }}
-              >
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedAddress(profile.address);
-                  }}
-                  className={`flex items-center gap-2.5 px-3 py-1.5 rounded-full border bg-slate-950/80 backdrop-blur-md shadow-lg transition-all duration-300 font-mono text-[9px] cursor-pointer whitespace-nowrap text-white ${
-                    isSelected
-                      ? 'border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.6)] scale-105'
-                      : 'border-white/10 hover:border-cyan-400/40 hover:scale-105'
-                  }`}
-                >
-                  <span className="text-xs">{info.emoji}</span>
-                  <div className="flex flex-col gap-0.5 text-left">
-                    <span className="font-heading font-bold text-[9px] text-white leading-none">
-                      {info.name}
-                    </span>
-                    <span className="text-[7.5px] text-slate-400 font-medium leading-none tracking-wide">
-                      {info.category}
-                    </span>
-                  </div>
-                </div>
-              </Html>
+              <group key={`biolum-${i}`} position={[d.position[0] * sf, 1.5, d.position[2] * sf]}>
+                <mesh>
+                  <sphereGeometry args={[0.15, 8, 8]} />
+                  <meshBasicMaterial color="#06b6d4" transparent opacity={0.6} />
+                </mesh>
+                <pointLight color="#06b6d4" intensity={0.3} distance={8} />
+              </group>
             );
           })}
-        </group>
 
-        {/* --- Core Civilization Structures Mapping --- */}
-        <group>
-          {profiles.map((profile) => {
-            switch (profile.type) {
-              case 'wallet':
-                return <Spire key={profile.address} profile={profile} />;
-              case 'startup':
-                if (profile.sector === 'Infrastructure') {
-                  return <ResearchStation key={profile.address} profile={profile} />;
-                }
-                if (profile.sector === 'Social') {
-                  return <CommunityCluster key={profile.address} profile={profile} />;
-                }
-                return <Rig key={profile.address} profile={profile} />;
-              case 'community':
-                return <Citadel key={profile.address} profile={profile} />;
-              case 'blockchain':
-                return <Vent key={profile.address} profile={profile} />;
-              default:
-                return null;
-            }
+        {/* ── Decorations: Kelp Forests ── */}
+        {layout.decorations
+          .filter(d => d.type === 'kelp')
+          .slice(0, 40)
+          .map((d, i) => {
+            const sf = 0.06;
+            const kelpHeight = 2 + d.variant * 1.5;
+            return (
+              <group key={`kelp-${i}`} position={[d.position[0] * sf, kelpHeight / 2, d.position[2] * sf]} rotation={[0, d.rotation, 0]}>
+                <mesh>
+                  <cylinderGeometry args={[0.05, 0.1, kelpHeight, 6]} />
+                  <meshStandardMaterial color="#0a4a3a" emissive="#0f7a5a" emissiveIntensity={0.3} roughness={0.8} />
+                </mesh>
+                {/* Kelp top bulb */}
+                <mesh position={[0, kelpHeight / 2 + 0.2, 0]}>
+                  <sphereGeometry args={[0.12, 6, 6]} />
+                  <meshStandardMaterial color="#10b981" emissive="#10b981" emissiveIntensity={0.5} />
+                </mesh>
+              </group>
+            );
           })}
-        </group>
+
+        {/* ── Decorations: Coral ── */}
+        {layout.decorations
+          .filter(d => d.type === 'coral')
+          .slice(0, 30)
+          .map((d, i) => {
+            const sf = 0.06;
+            const coralColors = ['#ec4899', '#f472b6', '#a855f7', '#f97316'];
+            const color = coralColors[d.variant % coralColors.length];
+            return (
+              <group key={`coral-${i}`} position={[d.position[0] * sf, 0.3, d.position[2] * sf]} rotation={[0, d.rotation, 0]}>
+                <mesh>
+                  <dodecahedronGeometry args={[0.3, 0]} />
+                  <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.4} roughness={0.6} />
+                </mesh>
+              </group>
+            );
+          })}
+
       </Canvas>
     </div>
   );

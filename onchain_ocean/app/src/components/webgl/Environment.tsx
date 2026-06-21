@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useOceanStore } from '../../store/useOceanStore';
+import type { OceanZone } from '../../types';
 
 // ── Typed interfaces ────────────────────────────────────────────
 interface RisingParticle {
@@ -47,6 +48,7 @@ export default function Environment() {
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const resetSearch = useOceanStore((state) => state.resetSearch);
+  const layout = useOceanStore((state) => state.layout);
 
   // ──────────────────────────────────────────────────────────────
   // 1. MAIN RISING BUBBLES (increased to 150 for density)
@@ -67,29 +69,33 @@ export default function Environment() {
     }));
   }, []);
 
+  const zones = layout.zones;
+
+  // ─── Resolve anchors from dynamic zones ───
+  const anchors = useMemo(() => {
+    const list: [number, number][] = [[0, 0]];
+    zones.forEach((z: OceanZone) => {
+      list.push([z.center[0] * 0.06, z.center[2] * 0.06]);
+    });
+    while (list.length < 6) {
+      list.push([(Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50]);
+    }
+    return list;
+  }, [zones]);
+
   // ──────────────────────────────────────────────────────────────
-  // 2. MICRO BUBBLE STREAMS near landmark positions
-  //    (tight clusters that rise from known structure anchors)
+  // 2. MICRO BUBBLE STREAMS near dynamic layout zone centers
   // ──────────────────────────────────────────────────────────────
   const microBubbleCount = 200;
   const microBubbles = useMemo<RisingParticle[]>(() => {
     const rng = seededRng(137);
-    // Emit near the 3 landmarks + center
-    const anchors = [
-      [0, 0],          // Genesis Citadel center
-      [-75, -85],      // Aether Pillar
-      [85, 75],        // Helios Tower
-      [-105, -55],     // DeFi HQ
-      [112, 58],       // Social Hub
-      [0, -105],       // Core Reef Complex
-    ];
     return Array.from({ length: microBubbleCount }, (_, i) => {
       const anchor = anchors[i % anchors.length];
       return {
         position: new THREE.Vector3(
-          anchor[0] / 3 + (rng() - 0.5) * 8,
+          anchor[0] + (rng() - 0.5) * 8,
           rng() * 25,
-          anchor[1] / 3 + (rng() - 0.5) * 8
+          anchor[1] + (rng() - 0.5) * 8
         ),
         speed: 0.8 + rng() * 1.8,
         scale: 0.02 + rng() * 0.06,
@@ -97,7 +103,7 @@ export default function Environment() {
         drift: (rng() - 0.5) * 0.15,
       };
     });
-  }, []);
+  }, [anchors]);
 
   // ──────────────────────────────────────────────────────────────
   // 3. KELP FOREST (increased, with more variety)
@@ -159,19 +165,22 @@ export default function Environment() {
   }, []);
 
   // ──────────────────────────────────────────────────────────────
-  // 6. BIOLUMINESCENT LANDMARK GLOW ORBS
-  //    Hovering particle clouds near Genesis Citadel, Aether, Helios
+  // 6. BIOLUMINESCENT LANDMARK GLOW ORBS (floating near zone centers)
   // ──────────────────────────────────────────────────────────────
   const bioGlowCount = 60;
   const bioGlows = useMemo(() => {
     const rng = seededRng(1337);
-    const anchors = [
-      { cx:  0,   cy: 15, cz:  0,   color: '#22d3ee' }, // Genesis
-      { cx: -25,  cy: 40, cz: -28,  color: '#a78bfa' }, // Aether
-      { cx:  28,  cy: 35, cz:  25,  color: '#06b6d4' }, // Helios
-    ];
+    const glowAnchors = zones.map((z: OceanZone) => ({
+      cx: z.center[0] * 0.06,
+      cy: 12 + rng() * 15,
+      cz: z.center[2] * 0.06,
+      color: z.color,
+    }));
+    if (glowAnchors.length === 0) {
+      glowAnchors.push({ cx: 0, cy: 15, cz: 0, color: '#22d3ee' });
+    }
     return Array.from({ length: bioGlowCount }, (_, i) => {
-      const anchor = anchors[i % anchors.length];
+      const anchor = glowAnchors[i % glowAnchors.length];
       return {
         position: new THREE.Vector3(
           anchor.cx + (rng() - 0.5) * 12,
@@ -183,7 +192,7 @@ export default function Environment() {
         color: anchor.color,
       };
     });
-  }, []);
+  }, [zones]);
 
   // ──────────────────────────────────────────────────────────────
   // FRAME LOOP
@@ -210,7 +219,7 @@ export default function Environment() {
       bubblesMeshRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // ── Micro bubbles (structure streams) ────────────────────
+    // ── Micro bubbles ────────────────────────────────────────
     if (microBubbleRef.current) {
       microBubbles.forEach((b, i) => {
         b.position.y += b.speed * dt;
@@ -270,7 +279,7 @@ export default function Environment() {
       planktonRef.current.instanceMatrix.needsUpdate = true;
     }
 
-    // ── Bioluminescent landmark glow orbs ────────────────────
+    // ── Bioluminescent Landmark glow orbs ────────────────────
     if (bioGlowRef.current) {
       bioGlows.forEach((g, i) => {
         const float = Math.sin(t * 0.6 + g.phase) * 1.2;
@@ -319,21 +328,16 @@ export default function Environment() {
     <group>
       {/* ════════════════════════════════════════════════════════
           MULTI-LAYER UNDERWATER FOG
-          Near fog (#041029) blends into deeper black for depth
           ════════════════════════════════════════════════════════ */}
       <fog attach="fog" args={['#041029', 35, 190]} />
 
       {/* ════════════════════════════════════════════════════════
-          LIGHTING SYSTEM — District Identity
+          LIGHTING SYSTEM
           ════════════════════════════════════════════════════════ */}
-
-      {/* Global ambient — lifted from 1.8 to 2.8 for readability */}
       <ambientLight intensity={2.8} color="#0e3870" />
-
-      {/* Secondary warm fill ambient to lift mid-tones */}
       <ambientLight intensity={0.9} color="#1a1040" />
 
-      {/* PRIMARY SUNLIGHT — stronger god-ray effect */}
+      {/* PRIMARY SUNLIGHT */}
       <directionalLight
         position={[50, 100, 30]}
         intensity={4.5}
@@ -347,34 +351,32 @@ export default function Environment() {
         shadow-camera-top={120}
         shadow-camera-bottom={-120}
       />
-      {/* Secondary fill light from opposite angle */}
+      
+      {/* Secondary fill light */}
       <directionalLight
         position={[-30, 60, -50]}
         intensity={1.8}
         color="#7c3aed"
       />
 
-      {/* CORE REEF — Cyan / White district identity */}
-      <pointLight position={[0, 8, -100]} color="#22d3ee" intensity={6.5} distance={90} decay={1.4} />
-      <pointLight position={[0, 4, 0]}    color="#06b6d4" intensity={3.5} distance={55} decay={1.8} />
-      <pointLight position={[35, 6, -98]} color="#e0f2fe" intensity={3.0} distance={60} decay={1.8} />
-      <pointLight position={[-35, 6, -98]} color="#22d3ee" intensity={3.0} distance={60} decay={1.8} />
+      {/* DYNAMIC DISTRICT LIGHTS */}
+      {zones.map((z: OceanZone) => {
+        const tx = z.center[0] * 0.06;
+        const tz = z.center[2] * 0.06;
+        return (
+          <pointLight
+            key={`zone-light-${z.id}`}
+            position={[tx, 8, tz]}
+            color={z.color}
+            intensity={6.0}
+            distance={85}
+            decay={1.4}
+          />
+        );
+      })}
 
-      {/* DEFI TRENCH — Violet / Magenta district identity */}
-      <pointLight position={[-105, 10, -55]} color="#a855f7" intensity={7.0} distance={95} decay={1.3} />
-      <pointLight position={[-120, 6, 0]}   color="#ec4899" intensity={4.5} distance={70} decay={1.6} />
-      <pointLight position={[-40, 6, -60]}  color="#f43f5e" intensity={3.5} distance={50} decay={1.8} />
-
-      {/* SOCIAL SHELF — Gold / Turquoise district identity */}
-      <pointLight position={[112, 10, 58]}  color="#fbbf24" intensity={7.0} distance={95} decay={1.3} />
-      <pointLight position={[95, 6, 95]}    color="#14b8a6" intensity={4.5} distance={70} decay={1.6} />
-      <pointLight position={[60, 5, 40]}    color="#d97706" intensity={3.5} distance={50} decay={1.8} />
-
-      {/* LANDMARK RIM LIGHTS — Aether Pillar + Helios Tower */}
-      <pointLight position={[-75, 60, -85]} color="#c084fc" intensity={5.0} distance={80} decay={1.4} />
-      <pointLight position={[ 85, 50,  75]} color="#06b6d4" intensity={5.0} distance={80} decay={1.4} />
-      {/* Genesis Citadel center boost */}
-      <pointLight position={[0, 5, 0]}      color="#22d3ee" intensity={4.0} distance={40} decay={1.6} />
+      {/* Center boost light */}
+      <pointLight position={[0, 5, 0]} color="#06b6d4" intensity={4.0} distance={40} decay={1.6} />
 
       {/* ANIMATED CAUSTIC SHIMMER LIGHTS */}
       <pointLight ref={caustic1Ref} position={[0, 25, 0]}     color="#06b6d4" intensity={3.8} distance={80} decay={1.4} />
@@ -384,51 +386,28 @@ export default function Environment() {
       {/* ════════════════════════════════════════════════════════
           GOD RAYS — volumetric light shaft cones from surface
           ════════════════════════════════════════════════════════ */}
-      {/* Core Reef primary ray */}
-      <mesh
-        ref={godRay1Ref}
-        position={[0, 38, -20]}
-        rotation={[0.15, 0, 0.05]}
-      >
-        <coneGeometry args={[18, 80, 12, 1, true]} />
-        <meshBasicMaterial
-          color="#a5f3fc"
-          transparent
-          opacity={0.028}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* DeFi Trench ray */}
-      <mesh
-        ref={godRay2Ref}
-        position={[-60, 35, -60]}
-        rotation={[0.12, 0.3, -0.08]}
-      >
-        <coneGeometry args={[14, 70, 10, 1, true]} />
-        <meshBasicMaterial
-          color="#c4b5fd"
-          transparent
-          opacity={0.022}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* Social Shelf ray */}
-      <mesh
-        ref={godRay3Ref}
-        position={[80, 32, 55]}
-        rotation={[0.1, -0.2, 0.1]}
-      >
-        <coneGeometry args={[12, 65, 10, 1, true]} />
-        <meshBasicMaterial
-          color="#fde68a"
-          transparent
-          opacity={0.020}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
+      {zones.slice(0, 3).map((z: OceanZone, idx: number) => {
+        const tx = z.center[0] * 0.06;
+        const tz = z.center[2] * 0.06;
+        const ref = idx === 0 ? godRay1Ref : idx === 1 ? godRay2Ref : godRay3Ref;
+        return (
+          <mesh
+            key={`godray-${z.id}`}
+            ref={ref}
+            position={[tx, 35, tz]}
+            rotation={[0.12 - idx * 0.03, idx * 0.1, -0.08 + idx * 0.04]}
+          >
+            <coneGeometry args={[12 + idx * 2, 70, 10, 1, true]} />
+            <meshBasicMaterial
+              color={z.color}
+              transparent
+              opacity={0.022}
+              side={THREE.BackSide}
+              depthWrite={false}
+            />
+          </mesh>
+        );
+      })}
 
       {/* ════════════════════════════════════════════════════════
           SEABED
@@ -502,7 +481,6 @@ export default function Environment() {
 
       {/* ════════════════════════════════════════════════════════
           DECORATIVE SEABED ROCK FORMATIONS
-          (passive depth-impression geometry)
           ════════════════════════════════════════════════════════ */}
       {[
         { p: [-45, 0, -30], s: [4, 2.5, 3.5] as [number,number,number] },
