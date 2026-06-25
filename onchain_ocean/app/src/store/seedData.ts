@@ -27,7 +27,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── DeFi Protocol ─────────────────────────────────────────────
   {
-    address: 'JUPag1h3kX9rY4fQz7cBwLm5eNvT8sGdOi2pUxW6KrMn',
+    address: 'JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3',
     domain: 'jupiter.sol',
     type: 'startup',
     sector: 'DeFi',
@@ -70,7 +70,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Community / DAO ───────────────────────────────────────────
   {
-    address: 'JUPDA0vRtF9yXcBwDm7eGjZ1sHq3oAn6UxW5KdTMr',
+    address: 'JUPyiwrYJFskUP4sfdaavEK29ECj5JQLuUR9kySsaWc',
     domain: 'jupdao.sol',
     type: 'community',
     projectName: 'Jupiter DAO',
@@ -91,7 +91,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Active Degen ──────────────────────────────────────────────
   {
-    address: 'NiSHuPkL4vRtF9yXcBwDm7eGjZ1sHq3oAn6UxW5KdTMr',
+    address: '5tzQ7fQQGSL2i24rGDVfTY1SoMwSpL7B9N76S439v5rW',
     domain: 'degen.sol',
     type: 'wallet',
     walletAgeYears: 0.8,
@@ -131,7 +131,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Validator ─────────────────────────────────────────────────
   {
-    address: 'VaLd8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'Vote111111111111111111111111111111111111111',
     domain: 'validator.sol',
     type: 'blockchain',
     projectName: 'Solana Validator',
@@ -168,7 +168,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── DeFi Yield Farmer ─────────────────────────────────────────
   {
-    address: 'YiELd8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'LBRaCzEZKz3tL751KGX9JAT5YqjbzEiYy1wKkAT6Rco',
     domain: 'yieldfarm.sol',
     type: 'wallet',
     walletAgeYears: 1.6,
@@ -208,7 +208,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── GameFi Player ─────────────────────────────────────────────
   {
-    address: 'GaMeR8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'ATLASux5aBK4etrrEsvaSg7Un6ryef57Sbd4xYhSg1sk',
     domain: 'gamer.sol',
     type: 'wallet',
     walletAgeYears: 1.1,
@@ -226,7 +226,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Governance Participant ────────────────────────────────────
   {
-    address: 'GoVeRn8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'GovER5nhWYw13spokDgg61XtvJVT1AFrqtrszgCn1bQb',
     domain: 'governor.sol',
     type: 'wallet',
     walletAgeYears: 2.5,
@@ -244,7 +244,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Drift Trader ──────────────────────────────────────────────
   {
-    address: 'DrIfT8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'dRFEymoaaowsjMQ22n664ssd5SXMkz365cVJPHpip8k',
     domain: 'drift.sol',
     type: 'wallet',
     walletAgeYears: 1.9,
@@ -265,7 +265,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── LP Provider ───────────────────────────────────────────────
   {
-    address: 'LiQuId8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'whirLbMiicVdio4tUfT68RJHK79u2sRb6WxST2i6bhA',
     domain: 'lp.sol',
     type: 'wallet',
     walletAgeYears: 2.0,
@@ -285,7 +285,7 @@ export const seedProfiles: BuilderProfile[] = [
   },
   // ─── Solend User ───────────────────────────────────────────────
   {
-    address: 'SoLeNd8sRtF2yN7vKxJm3pQcB9wGdZ4oTi8eUaLr1XnWCj',
+    address: 'So1endDq2YkqyJ3Z96T6o3yM4aUqB391zR5XbFqjH7T',
     domain: 'lender.sol',
     type: 'wallet',
     walletAgeYears: 2.4,
@@ -303,3 +303,108 @@ export const seedProfiles: BuilderProfile[] = [
     ],
   },
 ];
+
+// Procedurally expand seedProfiles to match the high density of Git City
+const MOCK_PROTOCOLS = ['Jupiter', 'Raydium', 'Orca', 'Meteora', 'Drift', 'Tensor', 'Pump.fun', 'Solend', 'Phoenix'];
+const MOCK_COMMUNITIES = ['Superteam Reef (Inferred)', 'Jupiter DAO (Inferred)', 'Solana Veterans (Inferred)', 'Active Builders (Inferred)', 'Bonk Nation (Inferred)', 'Tensorians (Inferred)'];
+
+const generateMockProfiles = (count: number) => {
+  let s = 12345;
+  const rand = () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const makeAddress = () => {
+    let addr = '';
+    for (let i = 0; i < 44; i++) {
+      addr += alphabet[Math.floor(rand() * alphabet.length)];
+    }
+    return addr;
+  };
+
+  for (let i = 0; i < count; i++) {
+    const address = makeAddress();
+    const domain = `builder_${i + 16}.sol`;
+    const walletAgeYears = parseFloat((0.1 + rand() * 4.8).toFixed(1));
+    const txCount = Math.floor(5 + rand() * 2400);
+    const solVolume = parseFloat((0.1 + rand() * 800).toFixed(2));
+    
+    // Protocol interactions
+    const pCount = Math.floor(1 + rand() * 4);
+    const protocolInteractions: { name: string; txCount: number }[] = [];
+    const usedProtos = new Set<string>();
+    for (let p = 0; p < pCount; p++) {
+      const pName = MOCK_PROTOCOLS[Math.floor(rand() * MOCK_PROTOCOLS.length)];
+      if (!usedProtos.has(pName)) {
+        usedProtos.add(pName);
+        protocolInteractions.push({ name: pName, txCount: Math.floor(1 + rand() * (txCount / pCount)) });
+      }
+    }
+
+    // Communities
+    const cCount = Math.floor(rand() * 3);
+    const communitiesJoined: string[] = [];
+    const usedComms = new Set<string>();
+    for (let c = 0; c < cCount; c++) {
+      const cName = MOCK_COMMUNITIES[Math.floor(rand() * MOCK_COMMUNITIES.length)];
+      if (!usedComms.has(cName)) {
+        usedComms.add(cName);
+        communitiesJoined.push(cName);
+      }
+    }
+
+    const typeRandom = rand();
+    let type: 'wallet' | 'startup' | 'community' | 'blockchain' = 'wallet';
+    let sector: 'DeFi' | 'Infrastructure' | 'Social' | undefined = undefined;
+    let projectName: string | undefined = undefined;
+
+    if (typeRandom < 0.08) {
+      type = 'startup';
+      const sectors: ('DeFi' | 'Infrastructure' | 'Social')[] = ['DeFi', 'Infrastructure', 'Social'];
+      sector = sectors[Math.floor(rand() * sectors.length)];
+      projectName = `${sector} Project ${i + 1}`;
+    } else if (typeRandom < 0.12) {
+      type = 'community';
+      projectName = `DAO Circle ${i + 1}`;
+    } else if (typeRandom < 0.15) {
+      type = 'blockchain';
+      projectName = `Validator Node ${i + 1}`;
+    }
+
+    const isDeployer = type === 'startup' || sector === 'Infrastructure' || type === 'blockchain';
+    const deployedContractsCount = isDeployer ? Math.max(1, Math.floor(rand() * 12) + 1) : 0;
+
+    seedProfiles.push({
+      address,
+      domain,
+      type,
+      sector,
+      projectName,
+      walletAgeYears,
+      txCount,
+      solVolume,
+      deployedContractsCount,
+      coordinates: [0, 0],
+      protocolInteractions,
+      communitiesJoined,
+      connectedAddresses: ['DhRuVqZ3mWJpFb7YtX8S5aNcK2gHd9LrEe1oUvCwBxMj'],
+      timeline: [
+        {
+          id: `tx-mock-${i}`,
+          timestamp: Date.now() / 1000 - rand() * 86400 * 30,
+          fromAddress: address,
+          toAddress: 'DhRuVqZ3mWJpFb7YtX8S5aNcK2gHd9LrEe1oUvCwBxMj',
+          type: 'interaction',
+          amount: parseFloat((rand() * 10).toFixed(2)),
+          label: 'Interact with Protocol'
+        }
+      ]
+    });
+  }
+};
+
+// Generate 1200 additional mock profiles to build a very dense map
+generateMockProfiles(1200);
+

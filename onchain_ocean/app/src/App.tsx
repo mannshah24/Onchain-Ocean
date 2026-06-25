@@ -2,50 +2,91 @@ import { useEffect, useState, useCallback } from 'react';
 import { useOceanStore } from './store/useOceanStore';
 import WorldCanvas from './components/webgl/WorldCanvas';
 import HeaderHUD from './components/hud/HeaderHUD';
-import SidebarHUD from './components/hud/SidebarHUD';
 import BottomHUD from './components/hud/BottomHUD';
 import HomepageOverlay from './components/hud/HomepageOverlay';
 import SonarHUD from './components/hud/SonarHUD';
 import Leaderboard from './components/hud/Leaderboard';
 import RightInfoPanel from './components/hud/RightInfoPanel';
 import LoadingScreen from './components/hud/LoadingScreen';
-import SonarMap from './components/hud/SonarMap';
-import { motion, AnimatePresence } from 'framer-motion';
-
+import MiniMap from './components/hud/MiniMap';
+import ActivityTicker from './components/hud/ActivityTicker';
 export default function App() {
   const activeRoute = useOceanStore((state) => state.activeRoute);
+  const setRoute = useOceanStore((state) => state.setRoute);
   const cameraState = useOceanStore((state) => state.cameraState);
   const theme = useOceanStore((state) => state.theme);
-  const showSonarMap = useOceanStore((state) => state.showSonarMap);
+  const themeIndex = useOceanStore((state) => state.themeIndex);
+  const setTheme = useOceanStore((state) => state.setTheme);
   const layout = useOceanStore((state) => state.layout);
-  const selectedAddress = useOceanStore((state) => state.selectedAddress);
-  const setSelectedAddress = useOceanStore((state) => state.setSelectedAddress);
+  const resetSearch = useOceanStore((state) => state.resetSearch);
   const swimMode = useOceanStore((state) => state.swimMode);
 
   const [loadingDone, setLoadingDone] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadStage, setLoadStage] = useState<'init' | 'fetching' | 'generating' | 'rendering' | 'ready' | 'done' | 'error'>('init');
 
-  // Simulated loading progression
+  // Real on-chain preset loading sequence
   useEffect(() => {
-    const stages: { stage: typeof loadStage; progress: number; delay: number }[] = [
-      { stage: 'init', progress: 10, delay: 0 },
-      { stage: 'fetching', progress: 30, delay: 400 },
-      { stage: 'generating', progress: 60, delay: 800 },
-      { stage: 'rendering', progress: 85, delay: 1200 },
-      { stage: 'ready', progress: 100, delay: 1800 },
-    ];
+    let active = true;
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    stages.forEach(({ stage, progress, delay }) => {
-      timers.push(setTimeout(() => {
-        setLoadStage(stage);
-        setLoadProgress(progress);
-      }, delay));
-    });
+    async function loadPresets() {
+      if (!active) return;
+      setLoadStage('init');
+      setLoadProgress(10);
 
-    return () => timers.forEach(clearTimeout);
+      // Brief delay before starting on-chain fetches
+      await new Promise(resolve => setTimeout(resolve, 400));
+      if (!active) return;
+
+      setLoadStage('fetching');
+      setLoadProgress(30);
+
+      try {
+        const store = useOceanStore.getState();
+        
+        // Listen to progress updates from the store
+        const unsubscribe = useOceanStore.subscribe((state) => {
+          if (active) {
+            setLoadStage(state.loadStage);
+            setLoadProgress(state.loadProgress);
+          }
+        });
+
+        // Fetch on-chain presets
+        await store.initializePresets();
+        
+        // Unsubscribe from store updates
+        unsubscribe();
+
+        if (!active) return;
+
+        // Briefly wait to let the user see the transition
+        await new Promise(resolve => setTimeout(resolve, 400));
+        if (!active) return;
+
+        setLoadStage('rendering');
+        setLoadProgress(90);
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (!active) return;
+
+        setLoadStage('ready');
+        setLoadProgress(100);
+      } catch (err) {
+        console.error("Failed to load on-chain presets:", err);
+        // Fallback to ready state if it fails so the app can still be used
+        setLoadStage('ready');
+        setLoadProgress(100);
+      }
+    }
+
+    loadPresets();
+
+    return () => {
+      active = false;
+    };
   }, []);
+
 
   const handleLoadingFadeComplete = useCallback(() => {
     setLoadingDone(true);
@@ -60,8 +101,8 @@ export default function App() {
           state.toggleSwimMode();
         } else if (state.selectedAddress) {
           state.setSelectedAddress(null);
-        } else if (state.activeRoute === 'leaderboard') {
-          state.setRoute('explore');
+        } else if (state.activeRoute !== 'lobby') {
+          state.resetSearch();
         }
       }
     };
@@ -77,7 +118,21 @@ export default function App() {
     }
   }, []);
 
-  const showInstructions = !swimMode && (activeRoute === 'explore' || cameraState.mode === 'free-float') && !selectedAddress;
+  const handleEscBack = () => {
+    resetSearch();
+  };
+
+  const handleFeedClick = () => {
+    if (activeRoute === 'leaderboard') {
+      setRoute('explore');
+    } else {
+      setRoute('leaderboard');
+    }
+  };
+
+  const handleThemeToggle = () => {
+    setTheme((themeIndex + 1) % 4);
+  };
 
   return (
     <div className="relative w-screen h-screen overflow-hidden select-none" style={{ backgroundColor: theme.bgColor }}>
@@ -97,19 +152,16 @@ export default function App() {
       {/* R3F 3D Viewport */}
       <WorldCanvas />
 
-      {/* Global HUD Header */}
-      <HeaderHUD />
+      {/* Lobby Menu Header */}
+      {activeRoute === 'lobby' && <HeaderHUD />}
 
-      {/* Left Navigation Sidebar */}
-      <SidebarHUD />
+      {/* Swim Mode Overlay Metrics */}
+      {swimMode && <BottomHUD />}
 
-      {/* Bottom Status & Control HUD */}
-      <BottomHUD />
-
-      {/* Homepage Overlay */}
+      {/* Homepage overlay search input */}
       <HomepageOverlay />
 
-      {/* Sonar Scan HUD */}
+      {/* Sonar Scan Radar */}
       <SonarHUD />
 
       {/* Leaderboard Modal */}
@@ -118,50 +170,71 @@ export default function App() {
       {/* Right Profile Info Panel */}
       <RightInfoPanel />
 
-      {/* Sonar Map */}
-      <AnimatePresence>
-        {showSonarMap && activeRoute !== 'lobby' && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className="fixed bottom-20 left-16 z-40 pointer-events-auto"
-          >
-            <SonarMap
-              structures={layout.structures}
-              zones={layout.zones}
-              cameraPos={{ x: cameraState.position[0], z: cameraState.position[2] }}
-              selectedAddress={selectedAddress}
-              accentColor={theme.accent}
-              onStructureClick={(addr) => setSelectedAddress(addr)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Retro HUD: Top Left ESC BACK ── */}
+      {activeRoute !== 'lobby' && loadingDone && (
+        <button
+          onClick={handleEscBack}
+          className="fixed top-6 left-6 z-50 px-3.5 py-2 border font-mono text-[9px] font-bold tracking-widest bg-black/90 hover:bg-white hover:text-black transition-all duration-200 cursor-pointer rounded-sm"
+          style={{ borderColor: `${theme.accent}60`, color: theme.accent, boxShadow: `0 2px 8px rgba(0,0,0,0.5)` }}
+        >
+          ESC BACK
+        </button>
+      )}
 
-      {/* Floating Navigation Instructions */}
-      <AnimatePresence>
-        {showInstructions && loadingDone && (
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 15 }}
-            className="absolute bottom-20 left-16 z-30 max-w-xs p-4 rounded-2xl border border-white/5 glass-panel shadow-2xl pointer-events-none font-mono text-[10px] text-slate-400 flex flex-col gap-1.5"
-          >
-            <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px]" style={{ color: theme.accent }}>
-              <span>🏊</span>
-              <span>Navigation Active</span>
-            </div>
-            <div>• Move/Swim: <span className="text-white">W A S D</span></div>
-            <div>• Vertical lift: <span className="text-white">Space / Shift</span></div>
-            <div>• Look: <span className="text-white">Drag Mouse</span></div>
-            <div>• Swim Mode: <span className="text-white">Press G</span></div>
-            <div className="mt-1 text-[9px] text-slate-500 italic border-t border-white/5 pt-1.5">
-              Double-click seabed to return to lobby · ESC to close panels
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Retro HUD: Top Right FEED Toggle ── */}
+      {activeRoute !== 'lobby' && loadingDone && (
+        <button
+          onClick={handleFeedClick}
+          className="fixed top-6 right-6 z-50 px-3.5 py-2 border font-mono text-[9px] font-bold tracking-widest bg-black/90 hover:bg-white hover:text-black transition-all duration-200 cursor-pointer rounded-sm"
+          style={{ borderColor: `${theme.accent}60`, color: theme.accent, boxShadow: `0 2px 8px rgba(0,0,0,0.5)` }}
+        >
+          • FEED
+        </button>
+      )}
+
+      {/* ── Retro HUD: Bottom Left Navigation Controls & Theme Switches ── */}
+      {activeRoute !== 'lobby' && loadingDone && (
+        <div className="fixed bottom-10 left-6 z-40 flex flex-col gap-3 font-mono text-[8px] tracking-wider text-slate-400 select-none">
+          <div className="flex flex-col gap-1 uppercase">
+            <div><span className="text-white font-bold">DRAG</span> ORBIT</div>
+            <div><span className="text-white font-bold">SCROLL</span> ZOOM</div>
+            <div><span className="text-white font-bold">RIGHT-DRAG</span> PAN</div>
+            <div><span className="text-white font-bold">CLICK</span> BUILDING</div>
+            <div><span className="text-white font-bold">ESC</span> BACK</div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleThemeToggle}
+              className="px-3 py-1.5 border text-[8px] font-bold tracking-widest uppercase bg-black/95 hover:bg-white hover:text-black transition-all duration-200 cursor-pointer rounded-sm"
+              style={{ borderColor: `${theme.accent}50`, color: theme.accent }}
+            >
+              ▶ {theme.name.toUpperCase()} {themeIndex + 1}/4
+            </button>
+            <button
+              className="px-3 py-1.5 border text-[8px] font-bold tracking-widest uppercase bg-black/95 hover:bg-white hover:text-black transition-all duration-200 cursor-pointer rounded-sm"
+              style={{ borderColor: `${theme.accent}50`, color: theme.accent }}
+            >
+              ▶ LO-FI ...
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Retro HUD: Canvas-Based Minimap ── */}
+      {activeRoute !== 'lobby' && loadingDone && (
+        <MiniMap
+          buildings={layout.structures}
+          playerX={cameraState.position[0]}
+          playerZ={cameraState.position[2]}
+          visible={true}
+        />
+      )}
+
+      {/* ── Retro HUD: Scrolling Activity Ticker ── */}
+      {activeRoute !== 'lobby' && loadingDone && (
+        <ActivityTicker />
+      )}
+
     </div>
   );
 }

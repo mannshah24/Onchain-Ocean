@@ -101,7 +101,7 @@ export default function CameraController() {
                            keysPressed.current.space || keysPressed.current.shift;
 
     if (cameraState.mode === 'focused' && anyKeysPressed && !cameraState.animating) {
-      useOceanStore.getState().resetSearch();
+      useOceanStore.getState().setSelectedAddress(null);
       return;
     }
 

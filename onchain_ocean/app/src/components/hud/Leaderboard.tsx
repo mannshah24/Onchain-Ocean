@@ -5,7 +5,7 @@ import { X, Trophy, TrendingUp, Clock, Layers } from 'lucide-react';
 import { getWalletArchetype, ZONE_COLORS, ZONE_NAMES } from '../../types';
 
 const TABS = [
-  { id: 'volume', label: 'Volume', icon: TrendingUp, key: 'solVolume' as const },
+  { id: 'contracts', label: 'Contracts Deployed', icon: TrendingUp, key: 'deployedContractsCount' as const },
   { id: 'txs', label: 'Transactions', icon: Layers, key: 'txCount' as const },
   { id: 'age', label: 'Wallet Age', icon: Clock, key: 'walletAgeYears' as const },
 ] as const;
@@ -46,7 +46,7 @@ export default function Leaderboard() {
   }, [profiles, connectedAddress, tab.key]);
 
   const formatValue = (val: number) => {
-    if (tab.key === 'solVolume') return `${val.toLocaleString()} SOL`;
+    if (tab.key === 'deployedContractsCount') return `${val.toLocaleString()} Contracts`;
     if (tab.key === 'walletAgeYears') return `${val} Yrs`;
     return val.toLocaleString();
   };

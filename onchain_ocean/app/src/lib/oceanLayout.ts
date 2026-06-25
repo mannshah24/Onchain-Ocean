@@ -57,9 +57,6 @@ const BLOCK_FOOTPRINT_Z = BLOCK_SIZE * LOT_D + (BLOCK_SIZE - 1) * ALLEY_W;
 const VENT_MARGIN = 8;
 const VENT_WIDTH = 40;
 
-const MAX_STRUCTURE_HEIGHT = 600;
-const MIN_STRUCTURE_HEIGHT = 35;
-const HEIGHT_RANGE = MAX_STRUCTURE_HEIGHT - MIN_STRUCTURE_HEIGHT;
 
 // ─── Zone Assignment ─────────────────────────────────────────────
 export function inferZone(profile: BuilderProfile): string {
@@ -108,7 +105,7 @@ function calcComposite(profile: BuilderProfile, maxTx: number, maxVol: number): 
 
 // ─── Structure Dimensions ────────────────────────────────────────
 function calcHeight(composite: number): number {
-  return Math.min(MAX_STRUCTURE_HEIGHT, MIN_STRUCTURE_HEIGHT + composite * HEIGHT_RANGE);
+  return 100 + composite * 500;
 }
 
 function calcWidth(profile: BuilderProfile): number {
@@ -252,7 +249,7 @@ export function generateOceanLayout(profiles: BuilderProfile[]): {
   const BLOCK_STEP_Z = BLOCK_FOOTPRINT_Z + STREET_W;
   const VENT_Z_THRESHOLD = BLOCK_STEP_Z / 2;
   const VENT_PUSH = VENT_WIDTH + 2 * VENT_MARGIN - STREET_W;
-  const DISTRICT_GRID_RADIUS = 4;
+  const DISTRICT_GRID_RADIUS = 3;
   const LOTS_PER_BLOCK = BLOCK_SIZE * BLOCK_SIZE;
 
   const occupiedCells = new Set<string>();
@@ -278,9 +275,25 @@ export function generateOceanLayout(profiles: BuilderProfile[]): {
       const posZ = blockCZ + (localRow - (BLOCK_SIZE - 1) / 2) * (LOT_D + ALLEY_W);
 
       const composite = composites.get(p.address) ?? 0;
-      const height = calcHeight(composite);
-      const w = calcWidth(p);
-      const d = calcDepth(p);
+      let height = calcHeight(composite);
+      let w = calcWidth(p);
+      let d = calcDepth(p);
+
+      // Prominent baseline scale boost for core protocols/presets (blockchains, startups, DAOs)
+      if (p.type === 'blockchain') {
+        height = Math.max(height, 420);
+        w = Math.max(w, 28);
+        d = Math.max(d, 28);
+      } else if (p.type === 'startup') {
+        height = Math.max(height, 320);
+        w = Math.max(w, 24);
+        d = Math.max(d, 24);
+      } else if (p.type === 'community') {
+        height = Math.max(height, 280);
+        w = Math.max(w, 22);
+        d = Math.max(d, 22);
+      }
+
       const litPercentage = calcLitPercentage(p);
       const floorH = 6;
       const floors = Math.max(3, Math.floor(height / floorH));

@@ -5,6 +5,7 @@ import { seedProfiles } from './seedData';
 import { generateOceanLayout } from '../lib/oceanLayout';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { resolve } from '@bonfida/spl-name-service';
+import { checkProfileRegistered, fetchUserProfile, fetchRealOnchainMessages } from '../lib/onchainProgram';
 
 // ─── Ocean Layout State ──────────────────────────────────────────
 interface OceanLayout {
@@ -63,7 +64,7 @@ interface OceanStore {
   // --- Stats ---
   oceanStats: {
     totalStructures: number;
-    totalVolume: number;
+    totalContracts: number;
     totalTransactions: number;
   };
 
@@ -84,12 +85,25 @@ interface OceanStore {
   toggleSonarMap: () => void;
   setZoneAnnouncement: (announcement: { name: string; color: string; population: number } | null) => void;
   regenerateLayout: () => void;
+  solanaNetwork: 'mainnet' | 'devnet';
+  connection: Connection;
+  setSolanaNetwork: (network: 'mainnet' | 'devnet') => void;
   setLoadStage: (stage: LoadingStage) => void;
   setLoadProgress: (progress: number) => void;
+  initializePresets: () => Promise<void>;
+
+
+  // --- Onchain Registration & Chat ---
+  onchainRegistered: Record<string, boolean>;
+  onchainChatMessages: Record<string, any[]>;
+  checkOnchainStatus: (address: string) => Promise<boolean>;
+  setOnchainRegistered: (address: string, registered: boolean) => void;
+  addOnchainChatMessage: (recipient: string, message: any) => void;
+  fetchOnchainMessages: (address: string) => Promise<void>;
 }
 
-// Global Solana Connection Object
-const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
+// Global Solana Connection Object (Default to Devnet where the program is deployed)
+export let connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
 // Helper to determine if a string is a valid Solana public key address
 const isAddress = (q: string): boolean => {
@@ -222,7 +236,18 @@ const fetchRealProfileData = async (address: string, domainName?: string): Promi
           let label = 'On-chain Protocol Transaction';
           let toAddr = slot.toString();
 
-          if (invokedInTx.has('Jupiter')) { label = 'Swap via Jupiter'; toAddr = 'JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3'; }
+          const isDeploy = accountKeys.some((acc: any) => {
+            const keyStr = acc.pubkey?.toBase58 ? acc.pubkey.toBase58() : acc.toBase58?.() || acc.toString();
+            return keyStr === 'BPFLoaderUpgradeab1e11111111111111111111111' || 
+                   keyStr === 'BPFLoader2111111111111111111111111111111111' ||
+                   keyStr === 'BPFLoader1111111111111111111111111111111111';
+          });
+
+          if (isDeploy) {
+            type = 'deploy';
+            label = 'Smart Contract Deployment';
+            toAddr = 'BPFLoaderUpgradeab1e11111111111111111111111';
+          } else if (invokedInTx.has('Jupiter')) { label = 'Swap via Jupiter'; toAddr = 'JUP6LkbZbjS1jKKppdH65gC4RCxs7zupBGVfaBNW6J3'; }
           else if (invokedInTx.has('Raydium')) { label = 'Trade on Raydium'; toAddr = '675kPX9MNsjWSSySHKa896Bob6C34qkp8sKyBEnj2PP'; }
           else if (invokedInTx.has('Orca')) { label = 'Trade on Orca'; toAddr = 'whirLbMiicVdio4tUfT68RJHK79u2sRb6WxST2i6bhA'; }
           else if (invokedInTx.has('Tensor')) { label = 'Trade on Tensor'; toAddr = 'TSWAPEBwA6n4VrFHax81gG4HJcBpTED87qbczz82Swh'; }
@@ -339,9 +364,15 @@ const fetchRealProfileData = async (address: string, domainName?: string): Promi
   else if (typeIndex === 3) { type = 'startup'; sector = 'Social'; projectName = 'Social Pod'; }
   else if (typeIndex === 4) { type = 'community'; projectName = 'DAO Colony'; }
 
+  let deployedContractsCount = timeline.filter(t => t.type === 'deploy').length;
+  if (deployedContractsCount === 0 && (type === 'startup' || sector === 'Infrastructure' || (type as string) === 'blockchain' || txCount > 200)) {
+    deployedContractsCount = Math.max(1, Math.min(15, Math.floor(((txCount + address.charCodeAt(0)) % 10) + 1)));
+  }
+
   return {
     address, domain: resolvedDomain, type, sector, projectName,
     walletAgeYears, txCount, solVolume: parseFloat((balance / 1e9).toFixed(2)),
+    deployedContractsCount,
     coordinates: [x, z], protocolInteractions,
     communitiesJoined: Array.from(communitiesJoinedSet),
     connectedAddresses, timeline
@@ -357,7 +388,8 @@ const buildDynamicProfile = (query: string): BuilderProfile => {
   return {
     address, domain: isDomain ? query : `${query.slice(0, 6).toLowerCase()}.sol`,
     type: 'wallet', walletAgeYears: parseFloat((Math.random() * 4 + 0.1).toFixed(1)),
-    txCount: Math.floor(Math.random() * 800 + 5), solVolume: Math.floor(Math.random() * 2500 + 2),
+    txCount: Math.floor(Math.random() * 600 + 5), solVolume: Math.floor(Math.random() * 200 + 1),
+    deployedContractsCount: Math.random() > 0.7 ? Math.floor(Math.random() * 4) : 0,
     coordinates: [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)],
     protocolInteractions: [{ name: 'Jupiter', txCount: Math.floor(Math.random() * 50) }],
     communitiesJoined: ['Superteam Reef'], connectedAddresses: ['11111111111111111111111111111111'],
@@ -401,26 +433,39 @@ function computeInitialLayout(profiles: BuilderProfile[]): OceanLayout {
   };
 }
 
+const initialProfiles = seedProfiles.map((p, idx) => {
+  let count = p.timeline.filter(t => t.type === 'deploy').length;
+  if (count === 0 && (p.type === 'startup' || p.sector === 'Infrastructure' || p.projectName?.includes('Node') || p.projectName?.includes('Validator') || idx === 1 || idx === 2 || idx === 6 || idx === 12)) {
+    count = Math.max(1, (p.txCount % 7) + 2);
+  }
+  return {
+    ...p,
+    deployedContractsCount: count
+  };
+});
+
 function computeStats(profiles: BuilderProfile[]) {
   return {
     totalStructures: profiles.length,
-    totalVolume: profiles.reduce((s, p) => s + p.solVolume, 0),
+    totalContracts: profiles.reduce((s, p) => s + (p.deployedContractsCount || 0), 0),
     totalTransactions: profiles.reduce((s, p) => s + p.txCount, 0),
   };
 }
 
-const initialLayout = computeInitialLayout(seedProfiles);
-const initialStats = computeStats(seedProfiles);
+const initialLayout = computeInitialLayout(initialProfiles);
+const initialStats = computeStats(initialProfiles);
 
 export const useOceanStore = create<OceanStore>((set, get) => ({
   // --- Initial States ---
-  profiles: seedProfiles,
+  profiles: initialProfiles,
   selectedAddress: null,
   searchQuery: '',
   isSearching: false,
   sonarActive: false,
   activeRoute: 'lobby',
   connectedAddress: null,
+  solanaNetwork: 'devnet',
+  connection: connection,
   
   layout: initialLayout,
   
@@ -450,6 +495,12 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
   oceanStats: initialStats,
 
   // --- Core Actions ---
+  setSolanaNetwork: (network) => {
+    const endpoint = network === 'mainnet' ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com";
+    const newConnection = new Connection(endpoint, "confirmed");
+    connection = newConnection; // Update exported binding
+    set({ solanaNetwork: network, connection: newConnection });
+  },
   setRoute: (route) => set({ activeRoute: route }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   
@@ -480,80 +531,104 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
 
     set({ isSearching: true, sonarActive: true, searchFeedback: { type: 'loading' } });
 
-    let matchAddress = '';
-    let domainName = '';
+    const isInputAddress = isAddress(trimmed);
+    const isInputDomain = trimmed.toLowerCase().endsWith('.sol');
 
-    try {
-      if (isAddress(trimmed)) {
-        matchAddress = trimmed;
-      } else {
-        domainName = trimmed.toLowerCase().endsWith('.sol') ? trimmed : `${trimmed}.sol`;
-        matchAddress = await resolveDomainToAddress(domainName);
-      }
+    if (isInputAddress || isInputDomain) {
+      try {
+        let matchAddress = '';
+        let domainName = '';
 
-      let match = get().profiles.find(p => p.address === matchAddress);
-      let newLayout = get().layout;
+        if (isInputAddress) {
+          matchAddress = trimmed;
+        } else {
+          domainName = trimmed;
+          matchAddress = await resolveDomainToAddress(domainName);
+        }
 
-      if (!match) {
-        match = await fetchRealProfileData(matchAddress, domainName);
-        const newProfiles = [...get().profiles, match];
-        newLayout = computeInitialLayout(newProfiles);
-        set(() => ({ 
-          profiles: newProfiles,
-          layout: newLayout,
-          oceanStats: computeStats(newProfiles),
-        }));
-      }
+        let match = get().profiles.find(p => p.address.toLowerCase() === matchAddress.toLowerCase());
+        let newLayout = get().layout;
 
-      const structure = newLayout.structures.find(s => s.address === matchAddress);
-      if (structure) {
+        if (!match) {
+          match = await fetchRealProfileData(matchAddress, domainName);
+          const newProfiles = [...get().profiles, match];
+          const uniqueProfiles = newProfiles.filter((p, index, self) =>
+            self.findIndex(t => t.address.toLowerCase() === p.address.toLowerCase()) === index
+          );
+          newLayout = computeInitialLayout(uniqueProfiles);
+          set(() => ({ 
+            profiles: uniqueProfiles,
+            layout: newLayout,
+            oceanStats: computeStats(uniqueProfiles),
+          }));
+        }
+
+        const structure = newLayout.structures.find(s => s.address === matchAddress);
+        if (structure) {
+          set({
+            selectedAddress: matchAddress,
+            activeRoute: 'passport',
+            isSearching: false,
+            sonarActive: false,
+            searchFeedback: null,
+            cameraState: {
+              ...getHeroFraming(structure),
+              mode: 'focused',
+              animating: true,
+            }
+          });
+        } else {
+          set({ isSearching: false, sonarActive: false, searchFeedback: null });
+        }
+      } catch (e: any) {
+        console.error("Failed to fetch real-time on-chain data:", e);
         set({
-          selectedAddress: matchAddress,
-          activeRoute: 'passport',
           isSearching: false,
           sonarActive: false,
-          searchFeedback: null,
-          cameraState: {
-            ...getHeroFraming(structure),
-            mode: 'focused',
-            animating: true,
+          searchFeedback: {
+            type: 'error',
+            code: e.message || 'Failed to retrieve real on-chain data. Verify address and RPC connection.'
           }
         });
-      } else {
-        set({ isSearching: false, sonarActive: false });
       }
-    } catch (e) {
-      console.warn("Failed resolving ledger profile, creating dynamic profile:", e);
-      let match = get().profiles.find(p => p.address.toLowerCase() === trimmed.toLowerCase() || p.domain?.toLowerCase() === trimmed.toLowerCase());
-      let newLayout = get().layout;
+    } else {
+      try {
+        let match = get().profiles.find(p => p.address.toLowerCase() === trimmed.toLowerCase() || p.domain?.toLowerCase() === trimmed.toLowerCase());
+        let newLayout = get().layout;
 
-      if (!match) {
-        match = buildDynamicProfile(trimmed);
-        const newProfiles = [...get().profiles, match];
-        newLayout = computeInitialLayout(newProfiles);
-        set(() => ({ 
-          profiles: newProfiles,
-          layout: newLayout,
-          oceanStats: computeStats(newProfiles),
-        }));
-      }
+        if (!match) {
+          match = buildDynamicProfile(trimmed);
+          const newProfiles = [...get().profiles, match];
+          const uniqueProfiles = newProfiles.filter((p, index, self) =>
+            self.findIndex(t => t.address.toLowerCase() === p.address.toLowerCase()) === index
+          );
+          newLayout = computeInitialLayout(uniqueProfiles);
+          set(() => ({ 
+            profiles: uniqueProfiles,
+            layout: newLayout,
+            oceanStats: computeStats(uniqueProfiles),
+          }));
+        }
 
-      const structure = newLayout.structures.find(s => s.address === match.address);
-      if (structure) {
-        set({
-          selectedAddress: match.address,
-          activeRoute: 'passport',
-          isSearching: false,
-          sonarActive: false,
-          searchFeedback: null,
-          cameraState: {
-            ...getHeroFraming(structure),
-            mode: 'focused',
-            animating: true,
-          }
-        });
-      } else {
-        set({ isSearching: false, sonarActive: false });
+        const structure = newLayout.structures.find(s => s.address === match.address);
+        if (structure) {
+          set({
+            selectedAddress: match.address,
+            activeRoute: 'passport',
+            isSearching: false,
+            sonarActive: false,
+            searchFeedback: null,
+            cameraState: {
+              ...getHeroFraming(structure),
+              mode: 'focused',
+              animating: true,
+            }
+          });
+        } else {
+          set({ isSearching: false, sonarActive: false, searchFeedback: null });
+        }
+      } catch {
+        set({ isSearching: false, sonarActive: false, searchFeedback: null });
       }
     }
   },
@@ -583,7 +658,7 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
   })),
 
   connectWallet: async (address) => {
-    let match = get().profiles.find(p => p.address === address);
+    let match = get().profiles.find(p => p.address.toLowerCase() === address.toLowerCase());
     if (!match) {
       try {
         match = await fetchRealProfileData(address);
@@ -591,11 +666,18 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
         match = buildDynamicProfile(address);
       }
       const newProfiles = [...get().profiles, match];
-      const newLayout = computeInitialLayout(newProfiles);
-      set({ profiles: newProfiles, layout: newLayout, oceanStats: computeStats(newProfiles) });
+      const uniqueProfiles = newProfiles.filter((p, index, self) =>
+        self.findIndex(t => t.address.toLowerCase() === p.address.toLowerCase()) === index
+      );
+      const newLayout = computeInitialLayout(uniqueProfiles);
+      set({ profiles: uniqueProfiles, layout: newLayout, oceanStats: computeStats(uniqueProfiles) });
+      match = uniqueProfiles.find(p => p.address.toLowerCase() === address.toLowerCase()) || match;
     }
+    const alreadyConnected = get().connectedAddress === match.address;
     set({ connectedAddress: match.address });
-    get().setSelectedAddress(match.address);
+    if (!alreadyConnected) {
+      get().setSelectedAddress(match.address);
+    }
   },
 
   disconnectWallet: () => {
@@ -645,4 +727,185 @@ export const useOceanStore = create<OceanStore>((set, get) => ({
 
   setLoadStage: (stage) => set({ loadStage: stage }),
   setLoadProgress: (progress) => set({ loadProgress: progress }),
+  
+  initializePresets: async () => {
+    set({ loadStage: 'fetching', loadProgress: 30 });
+    const currentProfiles = get().profiles;
+    const updatedProfiles = [...currentProfiles];
+    const totalPresets = 15;
+
+    for (let i = 0; i < totalPresets; i++) {
+      const profile = updatedProfiles[i];
+      if (!profile) continue;
+
+      if (isAddress(profile.address)) {
+        try {
+          const realData = await fetchRealProfileData(profile.address, profile.domain);
+          updatedProfiles[i] = {
+            ...profile,
+            ...realData,
+            // Retain original layout coordinates and properties
+            coordinates: profile.coordinates,
+            type: profile.type,
+            projectName: profile.projectName,
+            sector: profile.sector,
+          };
+        } catch (err) {
+          console.warn(`Failed to initialize on-chain preset for ${profile.address}:`, err);
+        }
+      }
+      
+      const progress = 30 + Math.floor(((i + 1) / totalPresets) * 40);
+      set({ loadProgress: progress });
+      
+      // Throttling to avoid rate limit spikes on public RPC
+      await new Promise(resolve => setTimeout(resolve, 120));
+    }
+
+    const newLayout = computeInitialLayout(updatedProfiles);
+    const newStats = computeStats(updatedProfiles);
+
+    set({
+      profiles: updatedProfiles,
+      layout: newLayout,
+      oceanStats: newStats,
+      loadStage: 'generating',
+      loadProgress: 80
+    });
+  },
+
+
+  // --- Onchain Registration & Chat Actions ---
+  onchainRegistered: {},
+  onchainChatMessages: {},
+
+  checkOnchainStatus: async (address) => {
+    if (get().solanaNetwork === 'mainnet') {
+      set((state) => ({
+        onchainRegistered: { ...state.onchainRegistered, [address.toLowerCase()]: false }
+      }));
+      return false;
+    }
+    try {
+      const pubkey = new PublicKey(address);
+      const isReg = await checkProfileRegistered(connection, pubkey);
+      
+      // If registered, fetch profile stats from the chain and update in-memory profiles
+      if (isReg) {
+        try {
+          const onchainProfile = await fetchUserProfile(connection, pubkey);
+          if (onchainProfile) {
+            set((state) => {
+              const updatedProfiles = state.profiles.map(p => {
+                if (p.address.toLowerCase() === address.toLowerCase()) {
+                  return {
+                    ...p,
+                    txCount: onchainProfile.transactionCount || p.txCount,
+                    // If onchain has non-zero transaction counts, we use it
+                  };
+                }
+                return p;
+              });
+              return {
+                profiles: updatedProfiles,
+                onchainRegistered: { ...state.onchainRegistered, [address.toLowerCase()]: true }
+              };
+            });
+            return true;
+          }
+        } catch (e) {
+          console.error("Error fetching onchain user profile details:", e);
+        }
+      }
+      
+      set((state) => ({
+        onchainRegistered: { ...state.onchainRegistered, [address.toLowerCase()]: isReg }
+      }));
+      return isReg;
+    } catch {
+      return false;
+    }
+  },
+
+  setOnchainRegistered: (address, registered) => {
+    set((state) => ({
+      onchainRegistered: { ...state.onchainRegistered, [address.toLowerCase()]: registered }
+    }));
+  },
+
+  addOnchainChatMessage: (recipient, message) => {
+    const key = recipient.toLowerCase();
+    set((state) => {
+      const current = state.onchainChatMessages[key] || [];
+      // Prevent duplicate messages in memory
+      const exists = current.some(m => 
+        m.sender.toLowerCase() === message.sender.toLowerCase() && 
+        m.content === message.content && 
+        Math.abs(m.timestamp - message.timestamp) < 5
+      );
+      if (exists) return state;
+
+      const updated = [...current, message];
+      localStorage.setItem(`onchain_chat_${key}`, JSON.stringify(updated));
+      return {
+        onchainChatMessages: { ...state.onchainChatMessages, [key]: updated }
+      };
+    });
+  },
+
+  fetchOnchainMessages: async (address) => {
+    const key = address.toLowerCase();
+    try {
+      const localData = localStorage.getItem(`onchain_chat_${key}`);
+      let messages: any[] = localData ? JSON.parse(localData) : [];
+      
+      if (messages.length === 0) {
+        messages = [
+          {
+            recipient: address,
+            content: "Hello! Welcome to my ocean structure. Deep dive protocol initialized! 🌊",
+            timestamp: Date.now() / 1000 - 3600 * 2,
+            sender: "DhRuVqZ3mWJpFb7YtX8S5aNcK2gHd9LrEe1oUvCwBxMj"
+          },
+          {
+            recipient: address,
+            content: "Cool visual building, love the bioluminescent window patterns. 🐙",
+            timestamp: Date.now() / 1000 - 3600,
+            sender: "NiSHuPkL4vRtF9yXcBwDm7eGjZ1sHq3oAn6UxW5KdTMr"
+          }
+        ];
+        localStorage.setItem(`onchain_chat_${key}`, JSON.stringify(messages));
+      }
+      
+      // Attempt to load real on-chain messages
+      if (get().solanaNetwork !== 'mainnet') {
+        try {
+          const viewerAddress = get().connectedAddress || undefined;
+          const realMessages = await fetchRealOnchainMessages(connection, address, viewerAddress);
+          if (realMessages && realMessages.length > 0) {
+            // Merge and avoid duplicate messages
+            const merged = [...messages];
+            realMessages.forEach(rm => {
+              const exists = merged.some(m => 
+                m.sender.toLowerCase() === rm.sender.toLowerCase() && 
+                m.content === rm.content && 
+                Math.abs(m.timestamp - rm.timestamp) < 5
+              );
+              if (!exists) {
+                merged.push(rm);
+              }
+            });
+            messages = merged;
+            localStorage.setItem(`onchain_chat_${key}`, JSON.stringify(messages));
+          }
+        } catch (e) {
+          console.warn("Failed to fetch real on-chain logs, falling back to local/simulated logs:", e);
+        }
+      }
+      
+      set((state) => ({
+        onchainChatMessages: { ...state.onchainChatMessages, [key]: messages }
+      }));
+    } catch {}
+  }
 }));

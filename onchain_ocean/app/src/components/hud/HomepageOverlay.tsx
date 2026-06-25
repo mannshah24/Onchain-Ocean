@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useOceanStore } from '../../store/useOceanStore';
 
 const LEADERBOARD_CATEGORIES = [
-  { label: 'Volume (SOL)', key: 'solVolume' as const },
+  { label: 'Contracts Deployed', key: 'deployedContractsCount' as const },
   { label: 'Transactions', key: 'txCount' as const },
   { label: 'Wallet Age', key: 'walletAgeYears' as const },
 ] as const;
@@ -26,7 +26,7 @@ function MiniLeaderboard() {
     .slice(0, 5);
 
   const formatValue = (val: number) => {
-    if (cat.key === 'solVolume') return `${val.toLocaleString()} SOL`;
+    if (cat.key === 'deployedContractsCount') return `${val.toLocaleString()} Contracts`;
     if (cat.key === 'walletAgeYears') return `${val}y`;
     return val.toLocaleString();
   };
@@ -89,6 +89,14 @@ export default function HomepageOverlay() {
   const profiles = useOceanStore((state) => state.profiles);
   const oceanStats = useOceanStore((state) => state.oceanStats);
   const theme = useOceanStore((state) => state.theme);
+  const solanaNetwork = useOceanStore((state) => state.solanaNetwork);
+  const setSolanaNetwork = useOceanStore((state) => state.setSolanaNetwork);
+  const searchFeedback = useOceanStore((state) => state.searchFeedback);
+  const connectedAddress = useOceanStore((state) => state.connectedAddress);
+
+  const connectedProfile = useMemo(() => {
+    return profiles.find(p => p.address === connectedAddress);
+  }, [profiles, connectedAddress]);
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [tickerIndex, setTickerIndex] = useState(0);
@@ -166,9 +174,50 @@ export default function HomepageOverlay() {
             >
               Onchain Ocean
             </h2>
-            <p className="font-sans text-xs md:text-sm text-slate-400 font-medium tracking-wide max-w-sm">
-              Enter any Solana wallet address to explore your place in the ocean depths.
-            </p>
+            {connectedAddress ? (
+              <div 
+                onClick={() => useOceanStore.getState().setSelectedAddress(connectedAddress)}
+                className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 font-mono text-xs cursor-pointer hover:bg-cyan-500/20 transition-all shadow-[0_0_15px_rgba(6,182,212,0.15)] pointer-events-auto select-text"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                <span>Passport Connected: {connectedProfile?.domain || `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`}</span>
+              </div>
+            ) : (
+              <p className="font-sans text-xs md:text-sm text-slate-400 font-medium tracking-wide max-w-sm">
+                Enter any Solana wallet address to explore your place in the ocean depths.
+              </p>
+            )}
+          </motion.div>
+
+          {/* Network Switcher */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.1, ease: 'easeOut' }}
+            className="flex items-center rounded-full border border-white/10 glass-panel p-0.5 select-none text-[9px] md:text-[10px] font-heading font-semibold tracking-wider uppercase h-[34px] shadow-lg"
+          >
+            <button
+              onClick={() => setSolanaNetwork('mainnet')}
+              className="px-4 h-full rounded-full transition-all duration-300 cursor-pointer"
+              style={{
+                background: solanaNetwork === 'mainnet' ? `${theme.accent}20` : 'transparent',
+                color: solanaNetwork === 'mainnet' ? theme.accent : '#94a3b8',
+                border: solanaNetwork === 'mainnet' ? `1px solid ${theme.accent}30` : '1px solid transparent',
+              }}
+            >
+              Mainnet-Beta
+            </button>
+            <button
+              onClick={() => setSolanaNetwork('devnet')}
+              className="px-4 h-full rounded-full transition-all duration-300 cursor-pointer"
+              style={{
+                background: solanaNetwork === 'devnet' ? `${theme.accent}20` : 'transparent',
+                color: solanaNetwork === 'devnet' ? theme.accent : '#94a3b8',
+                border: solanaNetwork === 'devnet' ? `1px solid ${theme.accent}30` : '1px solid transparent',
+              }}
+            >
+              Devnet
+            </button>
           </motion.div>
 
           {/* Search input */}
@@ -232,6 +281,26 @@ export default function HomepageOverlay() {
                       {sug}
                     </div>
                   ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Search error feedback */}
+            <AnimatePresence>
+              {searchFeedback && searchFeedback.type === 'error' && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-[110%] left-0 w-full rounded-2xl border border-rose-500/25 bg-rose-950/80 backdrop-blur-md p-3.5 text-xs font-mono text-rose-400 text-left z-50 shadow-xl"
+                >
+                  <div className="flex items-start gap-2.5 pointer-events-auto">
+                    <span className="text-sm select-none">⚠️</span>
+                    <div className="flex-1 flex flex-col gap-0.5">
+                      <span className="font-heading font-semibold uppercase tracking-wider text-[10px]">Search Error</span>
+                      <p className="text-[10.5px] leading-relaxed text-rose-300/90 font-mono">{searchFeedback.code || "Failed to retrieve real-time data from Solana RPC."}</p>
+                    </div>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -311,9 +380,9 @@ export default function HomepageOverlay() {
         >
           <span>{oceanStats.totalStructures} Structures</span>
           <span className="opacity-30">|</span>
-          <span>{oceanStats.totalVolume.toLocaleString()} SOL Vol</span>
+          <span>{oceanStats.totalContracts.toLocaleString()} Deployed Contracts</span>
           <span className="opacity-30">|</span>
-          <span style={{ color: theme.accent }}>Solana Mainnet</span>
+          <span style={{ color: theme.accent }}>Solana {solanaNetwork === 'mainnet' ? 'Mainnet' : 'Devnet'}</span>
         </motion.div>
       </footer>
     </div>

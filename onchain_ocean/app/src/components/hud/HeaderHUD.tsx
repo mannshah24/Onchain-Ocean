@@ -20,6 +20,8 @@ export default function HeaderHUD() {
   const connectedAddress = useOceanStore((state) => state.connectedAddress);
   const connectWallet = useOceanStore((state) => state.connectWallet);
   const disconnectWallet = useOceanStore((state) => state.disconnectWallet);
+  const solanaNetwork = useOceanStore((state) => state.solanaNetwork);
+  const setSolanaNetwork = useOceanStore((state) => state.setSolanaNetwork);
 
   const { select, wallets, disconnect, connected, publicKey, connecting } = useWallet();
 
@@ -41,6 +43,8 @@ export default function HeaderHUD() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+
 
   useEffect(() => {
     if (connected && publicKey) {
@@ -86,14 +90,17 @@ export default function HeaderHUD() {
     const targetWallet = wallets.find(
       (w) => w.adapter.name.toLowerCase() === providerName.toLowerCase()
     );
-    if (targetWallet && (targetWallet.readyState === 'Installed' || targetWallet.readyState === 'Loadable')) {
-      try {
-        setConnectionStep('loading');
-        select(targetWallet.adapter.name);
-      } catch {
-        setConnectionStep('inject');
-      }
-    } else {
+    if (!targetWallet) {
+      setConnectionStep('inject');
+      return;
+    }
+
+    try {
+      setConnectionStep('loading');
+      select(targetWallet.adapter.name);
+      await targetWallet.adapter.connect();
+    } catch (err) {
+      console.error("Direct wallet connection failed, falling back to manual entry:", err);
       setConnectionStep('inject');
     }
   };
@@ -180,6 +187,32 @@ export default function HeaderHUD() {
               {archetype.split(' ').slice(0, 2).join(' ')}
             </span>
           )}
+
+          {/* Network Switcher */}
+          <div className="flex items-center rounded-full border border-white/10 glass-panel p-0.5 select-none text-[9px] font-heading font-semibold tracking-wider uppercase h-[30px] shadow-sm">
+            <button
+              onClick={() => setSolanaNetwork('mainnet')}
+              className="px-2.5 h-full rounded-full transition-all duration-300 cursor-pointer"
+              style={{
+                background: solanaNetwork === 'mainnet' ? `${theme.accent}20` : 'transparent',
+                color: solanaNetwork === 'mainnet' ? theme.accent : '#94a3b8',
+                border: solanaNetwork === 'mainnet' ? `1px solid ${theme.accent}30` : '1px solid transparent',
+              }}
+            >
+              Mainnet
+            </button>
+            <button
+              onClick={() => setSolanaNetwork('devnet')}
+              className="px-2.5 h-full rounded-full transition-all duration-300 cursor-pointer"
+              style={{
+                background: solanaNetwork === 'devnet' ? `${theme.accent}20` : 'transparent',
+                color: solanaNetwork === 'devnet' ? theme.accent : '#94a3b8',
+                border: solanaNetwork === 'devnet' ? `1px solid ${theme.accent}30` : '1px solid transparent',
+              }}
+            >
+              Devnet
+            </button>
+          </div>
 
           {/* Connect Wallet */}
           <div className="relative">

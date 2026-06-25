@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOceanStore } from '../../store/useOceanStore';
 import { X, ExternalLink, ShieldCheck, Copy, Share2 } from 'lucide-react';
 import { getWalletArchetype, ZONE_NAMES, ZONE_COLORS } from '../../types';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { Keypair, Transaction } from '@solana/web3.js';
+import { 
+  buildRegisterUserInstruction, 
+  buildSendMessagesInstruction 
+} from '../../lib/onchainProgram';
 
 const BADGE_INFO: Record<string, { emoji: string; label: string; color: string }> = {
   whale: { emoji: '🐋', label: 'Whale', color: '#06b6d4' },
@@ -31,23 +37,59 @@ export default function RightInfoPanel() {
   const profiles = useOceanStore((state) => state.profiles);
   const layout = useOceanStore((state) => state.layout);
   const theme = useOceanStore((state) => state.theme);
+  const solanaNetwork = useOceanStore((state) => state.solanaNetwork);
+
+  const { connected, publicKey, sendTransaction } = useWallet();
+  const connectedAddress = useOceanStore((state) => state.connectedAddress);
+  const checkOnchainStatus = useOceanStore((state) => state.checkOnchainStatus);
+  const fetchOnchainMessages = useOceanStore((state) => state.fetchOnchainMessages);
+  const setOnchainRegistered = useOceanStore((state) => state.setOnchainRegistered);
+  const onchainRegistered = useOceanStore((state) => state.onchainRegistered);
+  const onchainChatMessages = useOceanStore((state) => state.onchainChatMessages);
+
+  const clusterParam = solanaNetwork === 'devnet' ? '?cluster=devnet' : '';
 
   const [copied, setCopied] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [statusAlert, setStatusAlert] = useState<{
+    type: 'success' | 'error' | 'loading';
+    message: string;
+    txId?: string;
+  } | null>(null);
 
-  const profile = profiles.find((p) => p.address === selectedAddress);
-  const structure = layout.structures.find((s) => s.address === selectedAddress);
+  const profile = profiles.find((p) => p.address.toLowerCase() === selectedAddress?.toLowerCase());
+  const structure = layout.structures.find((s) => s.address.toLowerCase() === selectedAddress?.toLowerCase());
 
-  if (!profile || !structure) {
-    // Fallback: show profile even without structure
-    if (!profile) return null;
-  }
+  // Trigger registration & message fetch on mount / coordinate change
+  useEffect(() => {
+    if (selectedAddress) {
+      checkOnchainStatus(selectedAddress);
+      fetchOnchainMessages(selectedAddress);
+
+      const interval = setInterval(() => {
+        checkOnchainStatus(selectedAddress);
+        fetchOnchainMessages(selectedAddress);
+      }, 10000);
+
+      return () => clearInterval(interval);
+    }
+  }, [selectedAddress, checkOnchainStatus, fetchOnchainMessages]);
+
+  if (!profile) return null;
 
   const archetype = getWalletArchetype(profile.address);
   const zone = structure?.zone || 'explorer_expanse';
   const badges = structure?.badges || [];
   const reputationScore = structure?.reputationScore || 0;
   const depthLevel = structure?.depthLevel || 1;
+
+  const isOwnProfile = connected && publicKey && publicKey.toBase58().toLowerCase() === profile.address.toLowerCase();
+  const isRegistered = !!onchainRegistered[profile.address.toLowerCase()];
+  const isSenderRegistered = connectedAddress ? !!onchainRegistered[connectedAddress.toLowerCase()] : false;
+  const chatMessages = onchainChatMessages[profile.address.toLowerCase()] || [];
 
   const handleCopy = () => {
     navigator.clipboard.writeText(profile.address);
@@ -62,9 +104,139 @@ export default function RightInfoPanel() {
     setTimeout(() => setShareMsg(''), 2000);
   };
 
+  const handleRegister = async () => {
+    if (!publicKey || !connected) {
+      setStatusAlert({ type: 'error', message: 'Wallet not connected.' });
+      return;
+    }
+    
+    setRegistering(true);
+    setStatusAlert({ type: 'loading', message: 'Preparing your registration transaction... Please approve in your wallet.' });
+    
+    const activeConnection = useOceanStore.getState().connection;
+    try {
+      const mintKeypair = Keypair.generate();
+      
+      const tx = new Transaction().add(
+        buildRegisterUserInstruction(
+          publicKey,
+          mintKeypair.publicKey,
+          profile.txCount,
+          1, // contractTypes bitmask
+          profile.domain || "onchain_ocean_user"
+        )
+      );
+      
+      const latestBlockhash = await activeConnection.getLatestBlockhash();
+      tx.recentBlockhash = latestBlockhash.blockhash;
+      tx.feePayer = publicKey;
+      
+      setStatusAlert({ type: 'loading', message: 'Awaiting signature... Please sign the mint transaction.' });
+      
+      const signature = await sendTransaction(tx, activeConnection, {
+        signers: [mintKeypair]
+      });
+      
+      setStatusAlert({ type: 'loading', message: `Confirming transaction on Solana ${solanaNetwork === 'mainnet' ? 'Mainnet' : 'Devnet'}...`, txId: signature });
+      
+      await activeConnection.confirmTransaction({
+        signature,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+      }, 'confirmed');
+      
+      // Update store state
+      setOnchainRegistered(profile.address, true);
+      
+      // Re-trigger status checks to parse values from PDA
+      await checkOnchainStatus(profile.address);
+      
+      setStatusAlert({
+        type: 'success',
+        message: 'Successfully registered and minted your Onchain Ocean Passport NFT!',
+        txId: signature
+      });
+    } catch (e: any) {
+      console.error(e);
+      setStatusAlert({
+        type: 'error',
+        message: e.message || 'Transaction failed. Check wallet balances (Devnet funds required).'
+      });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!messageText.trim()) return;
+    if (!publicKey || !connected || !connectedAddress) {
+      setStatusAlert({ type: 'error', message: 'Wallet not connected.' });
+      return;
+    }
+    
+    setSendingMsg(true);
+    const content = messageText.trim();
+    setStatusAlert({ type: 'loading', message: 'Preparing chat transaction...' });
+    
+    const activeConnection = useOceanStore.getState().connection;
+    try {
+      const msgInput = {
+        recipient: profile.address,
+        content,
+        timestamp: Math.floor(Date.now() / 1000)
+      };
+      
+      const tx = new Transaction().add(
+        buildSendMessagesInstruction(publicKey, [msgInput])
+      );
+      
+      const latestBlockhash = await activeConnection.getLatestBlockhash();
+      tx.recentBlockhash = latestBlockhash.blockhash;
+      tx.feePayer = publicKey;
+      
+      setStatusAlert({ type: 'loading', message: 'Awaiting signature... Please sign the transaction.' });
+      
+      const signature = await sendTransaction(tx, activeConnection);
+      
+      setStatusAlert({ type: 'loading', message: 'Broadcasting message to the blockchain...', txId: signature });
+      
+      await activeConnection.confirmTransaction({
+        signature,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+      }, 'confirmed');
+      
+      // Add local message cache so it shows instantly
+      const localMsg = {
+        sender: publicKey.toBase58(),
+        recipient: profile.address,
+        content,
+        timestamp: msgInput.timestamp
+      };
+      
+      // Update state via store action
+      useOceanStore.getState().addOnchainChatMessage(profile.address, localMsg);
+      
+      setMessageText('');
+      setStatusAlert({
+        type: 'success',
+        message: 'Message broadcasted successfully!',
+        txId: signature
+      });
+    } catch (e: any) {
+      console.error(e);
+      setStatusAlert({
+        type: 'error',
+        message: e.message || 'Failed to send message.'
+      });
+    } finally {
+      setSendingMsg(false);
+    }
+  };
+
   // Calculated metrics
   const programsUsed = Math.min(64, Math.round(profile.txCount / 12 + 3));
-  const volPercent = Math.min(100, Math.max(10, Math.round((profile.solVolume / 2500) * 100)));
   const txPercent = Math.min(100, Math.max(10, Math.round((profile.txCount / 800) * 100)));
   const activityPercent = Math.min(100, Math.max(15, Math.round(70 + (profile.txCount % 30))));
   const agePercent = Math.min(100, Math.max(10, Math.round((profile.walletAgeYears / 4.5) * 100)));
@@ -79,6 +251,39 @@ export default function RightInfoPanel() {
           transition={{ type: 'spring', damping: 25, stiffness: 120 }}
           className="fixed z-40 right-4 top-20 bottom-20 w-[calc(100%-32px)] sm:w-[400px] rounded-3xl border border-white/10 glass-panel shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden pointer-events-auto select-none font-sans"
         >
+          {/* Status Alert Banner */}
+          {statusAlert && (
+            <div className={`p-4 text-xs font-mono border-b flex flex-col gap-1 transition-all ${
+              statusAlert.type === 'loading' ? 'bg-cyan-500/10 border-cyan-500/25 text-cyan-400' :
+              statusAlert.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' :
+              'bg-red-500/10 border-red-500/25 text-red-400'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold uppercase tracking-wider">
+                  {statusAlert.type === 'loading' ? '⏳ Transaction In Progress' :
+                   statusAlert.type === 'success' ? '✅ Transaction Confirmed' :
+                   '❌ Transaction Failed'}
+                </span>
+                {statusAlert.type !== 'loading' && (
+                  <button onClick={() => setStatusAlert(null)} className="text-[10px] hover:text-white cursor-pointer">
+                    Dismiss
+                  </button>
+                )}
+              </div>
+              <p>{statusAlert.message}</p>
+              {statusAlert.txId && (
+                <a
+                  href={`https://explorer.solana.com/tx/${statusAlert.txId}${clusterParam}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline text-[10px] hover:text-white mt-1 inline-flex items-center gap-1"
+                >
+                  View on Explorer <ExternalLink size={10} />
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex items-center justify-between p-5 pb-0">
             <span className="text-[9px] tracking-widest uppercase font-heading font-semibold text-slate-500">
@@ -146,6 +351,38 @@ export default function RightInfoPanel() {
               )}
             </div>
 
+            {/* Onchain Verified Status / Register CTA */}
+            <div className="flex flex-col gap-2 mt-1">
+              {isRegistered ? (
+                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-mono">
+                  <ShieldCheck size={14} className="text-emerald-400 flex-shrink-0" />
+                  <span>On-chain Profile Verified (NFT Minted)</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 bg-amber-500/5 border border-amber-500/20 p-3 rounded-2xl">
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-400 font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span>Unregistered On-chain Profile</span>
+                  </div>
+                  {isOwnProfile && (
+                    solanaNetwork === 'mainnet' ? (
+                      <div className="flex flex-col gap-1.5 mt-1 text-[9.5px] text-amber-400 font-mono leading-relaxed bg-amber-500/5 p-2.5 rounded-xl border border-amber-500/20 text-center select-text">
+                        <span>⚠️ Passport registration is Devnet-only. Switch networks in the header to register your profile.</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleRegister}
+                        disabled={registering}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-amber-500/30 hover:border-amber-400 bg-amber-500/10 text-amber-400 hover:text-white transition-all text-[10px] font-bold tracking-widest uppercase font-heading cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed animate-pulse"
+                      >
+                        {registering ? 'Registering...' : 'Register Profile & Mint NFT'}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Ocean Badges */}
             {badges.length > 0 && (
               <div className="flex flex-col gap-1.5">
@@ -178,7 +415,7 @@ export default function RightInfoPanel() {
               </span>
               <div className="flex flex-col gap-1.5">
                 {[
-                  { label: 'SOL Balance', value: `${profile.solVolume.toLocaleString()} SOL`, tag: 'Verified' },
+                  { label: 'Contracts Deployed', value: `${profile.deployedContractsCount || 0}`, tag: 'Detected' },
                   { label: 'Transactions', value: profile.txCount.toLocaleString(), tag: 'Verified' },
                   { label: 'Wallet Age', value: `${profile.walletAgeYears} Yrs`, tag: 'Verified' },
                   { label: 'Programs Used', value: programsUsed.toString(), tag: 'Detected' },
@@ -240,7 +477,7 @@ export default function RightInfoPanel() {
               </span>
               <div className="flex flex-col gap-2.5 bg-white/5 border border-white/5 rounded-2xl p-4">
                 {[
-                  { label: 'Size (Volume)', value: volPercent, color: '#06b6d4' },
+                  { label: 'Contracts Deployed', value: Math.min(100, Math.max(10, (profile.deployedContractsCount || 0) * 10)), color: '#06b6d4' },
                   { label: 'Height (Transactions)', value: txPercent, color: '#a855f7' },
                   { label: 'Activity (30D)', value: activityPercent, color: '#10b981' },
                   { label: 'Age (Maturity)', value: agePercent, color: '#f97316' },
@@ -281,6 +518,103 @@ export default function RightInfoPanel() {
               </div>
             )}
 
+            {/* On-Chain Direct Messages */}
+            <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] tracking-wider uppercase font-semibold text-slate-500 font-heading">
+                  Direct Messages
+                </span>
+                {connectedAddress && (
+                  <span className="text-[7.5px] font-mono text-slate-600">
+                    1:1 On-Chain
+                  </span>
+                )}
+              </div>
+              
+              {/* Message scroll container */}
+              <div className="flex flex-col gap-2 max-h-[250px] overflow-y-auto bg-black/45 border border-white/5 rounded-2xl p-3 font-mono text-[10.5px]">
+                {chatMessages.length === 0 ? (
+                  <div className="text-center py-6 text-slate-500">
+                    No messages yet. Start a conversation! 💬
+                  </div>
+                ) : (
+                  chatMessages.map((msg, i) => {
+                    const isSenderMe = connectedAddress && msg.sender.toLowerCase() === connectedAddress.toLowerCase();
+                    return (
+                      <div
+                        key={i}
+                        className="flex flex-col gap-1"
+                        style={{ alignItems: isSenderMe ? 'flex-end' : 'flex-start' }}
+                      >
+                        <div
+                          className="max-w-[85%] p-2.5 rounded-2xl border"
+                          style={{
+                            background: isSenderMe ? `${theme.accent}12` : 'rgba(255,255,255,0.04)',
+                            borderColor: isSenderMe ? `${theme.accent}25` : 'rgba(255,255,255,0.06)',
+                            borderBottomRightRadius: isSenderMe ? '6px' : undefined,
+                            borderBottomLeftRadius: !isSenderMe ? '6px' : undefined,
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-1 text-[8px] text-slate-500">
+                            <span className={isSenderMe ? '' : 'text-slate-400'} style={isSenderMe ? { color: theme.accent } : {}}>
+                              {isSenderMe ? 'You' : `${msg.sender.slice(0, 5)}...${msg.sender.slice(-4)}`}
+                            </span>
+                            <span className="text-slate-600">
+                              {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-slate-200 break-words leading-relaxed whitespace-pre-line text-[10.5px]">{msg.content}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Chat Input form */}
+              <form onSubmit={handleSendMessage} className="flex flex-col gap-2 mt-1">
+                <textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder={
+                    solanaNetwork === 'mainnet'
+                      ? "Messaging is Devnet-only..."
+                      : !connected 
+                        ? "Connect wallet to message..." 
+                        : !isSenderRegistered 
+                          ? "Register your profile first to send messages..." 
+                          : `Send a direct message...`
+                  }
+                  disabled={solanaNetwork === 'mainnet' || !connected || !isSenderRegistered || sendingMsg}
+                  className="w-full h-12 bg-black/40 border border-white/10 rounded-xl p-2.5 text-[10.5px] font-mono text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                
+                {solanaNetwork === 'mainnet' ? (
+                  <span className="text-[8px] text-amber-400 font-mono">
+                    ⚠️ On-chain messaging is currently available on Devnet only.
+                  </span>
+                ) : connected && !isSenderRegistered ? (
+                  <span className="text-[8px] text-amber-500 font-mono">
+                    ⚠️ You must register your own profile on-chain before sending messages.
+                  </span>
+                ) : null}
+
+                <button
+                  type="submit"
+                  disabled={solanaNetwork === 'mainnet' || !connected || !isSenderRegistered || sendingMsg || !messageText.trim()}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border font-heading font-semibold text-[9px] tracking-wider uppercase transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  style={{
+                    borderColor: `${theme.accent}30`,
+                    background: `${theme.accent}10`,
+                    color: theme.accent,
+                    boxShadow: `0 0 10px ${theme.accent}10`,
+                  }}
+                >
+                  {sendingMsg ? 'Transmitting...' : 'Send Direct Message'}
+                </button>
+              </form>
+            </div>
+
             {/* Recent Timeline */}
             {profile.timeline.length > 0 && (
               <div className="flex flex-col gap-1.5">
@@ -291,7 +625,7 @@ export default function RightInfoPanel() {
                   {profile.timeline.slice(0, 4).map((tx) => (
                     <a
                       key={tx.id}
-                      href={`https://explorer.solana.com/tx/${tx.id}`}
+                      href={`https://explorer.solana.com/tx/${tx.id}${clusterParam}`}
                       target="_blank"
                       rel="noreferrer"
                       className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/5 border border-white/5 hover:border-white/10 transition-colors"
@@ -327,7 +661,7 @@ export default function RightInfoPanel() {
               </span>
             </button>
             <a
-              href={`https://explorer.solana.com/address/${profile.address}`}
+              href={`https://explorer.solana.com/address/${profile.address}${clusterParam}`}
               target="_blank"
               rel="noreferrer"
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full border font-heading font-semibold text-[10px] tracking-widest uppercase transition-all cursor-pointer"

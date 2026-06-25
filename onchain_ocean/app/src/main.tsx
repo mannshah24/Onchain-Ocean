@@ -1,7 +1,11 @@
+import { Buffer } from 'buffer/';
+(window as any).Buffer = Buffer;
+
 import React, { useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { useOceanStore } from './store/useOceanStore';
 
 // Solana Wallet Adapter imports
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
@@ -14,8 +18,8 @@ function Root() {
     new SolflareWalletAdapter(),
   ], []);
 
-  // Standard Mainnet-Beta public RPC
-  const endpoint = "https://api.mainnet-beta.solana.com";
+  const solanaNetwork = useOceanStore((state) => state.solanaNetwork);
+  const endpoint = solanaNetwork === 'mainnet' ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com";
 
   return (
     <ConnectionProvider endpoint={endpoint}>

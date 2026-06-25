@@ -218,13 +218,72 @@ export interface OceanTheme {
   shadow: string;
   fogColor: string;
   bgColor: string;
+  building: {
+    windowLit: string[];
+    windowOff: string;
+    face: string;
+    roof: string;
+    accent: string;
+  };
 }
 
 export const OCEAN_THEMES: OceanTheme[] = [
-  { name: 'Abyssal',        accent: '#06b6d4', shadow: '#064e3b', fogColor: '#041029', bgColor: '#030712' },
-  { name: 'Bioluminescent', accent: '#a78bfa', shadow: '#4c1d95', fogColor: '#0c0a1a', bgColor: '#050510' },
-  { name: 'Reef Sunrise',   accent: '#f59e0b', shadow: '#78350f', fogColor: '#1a0e04', bgColor: '#0f0a02' },
-  { name: 'Neon Depths',    accent: '#ec4899', shadow: '#831843', fogColor: '#120818', bgColor: '#0a0410' },
+  { 
+    name: 'Abyssal', 
+    accent: '#06b6d4', 
+    shadow: '#064e3b', 
+    fogColor: '#041029', 
+    bgColor: '#030712',
+    building: {
+      face: '#0a1628', 
+      roof: '#06b6d4',
+      windowLit: ['#06b6d4', '#22d3ee', '#67e8f9', '#a5f3fc'],
+      windowOff: '#0c1a2e', 
+      accent: '#06b6d4',
+    }
+  },
+  { 
+    name: 'Bioluminescent', 
+    accent: '#a78bfa', 
+    shadow: '#4c1d95', 
+    fogColor: '#0c0a1a', 
+    bgColor: '#050510',
+    building: {
+      face: '#120a24', 
+      roof: '#a855f7',
+      windowLit: ['#a855f7', '#c084fc', '#d8b4fe', '#8b5cf6'],
+      windowOff: '#14082a', 
+      accent: '#a855f7',
+    }
+  },
+  { 
+    name: 'Reef Sunrise', 
+    accent: '#f59e0b', 
+    shadow: '#78350f', 
+    fogColor: '#1a0e04', 
+    bgColor: '#0f0a02',
+    building: {
+      face: '#1a1008', 
+      roof: '#f97316',
+      windowLit: ['#f97316', '#fb923c', '#fdba74', '#ea580c'],
+      windowOff: '#1c1208', 
+      accent: '#f97316',
+    }
+  },
+  { 
+    name: 'Neon Depths', 
+    accent: '#ec4899', 
+    shadow: '#831843', 
+    fogColor: '#120818', 
+    bgColor: '#0a0410',
+    building: {
+      face: '#180830', 
+      roof: '#ec4899',
+      windowLit: ['#ec4899', '#f472b6', '#fb7185', '#f9a8d4'],
+      windowOff: '#0a0814', 
+      accent: '#ec4899',
+    }
+  },
 ];
 
 // ─── Loading Stage ───────────────────────────────────────────────
@@ -247,6 +306,7 @@ export interface BuilderProfile {
   walletAgeYears: number;
   txCount: number;
   solVolume: number;
+  deployedContractsCount?: number;
 
   // Specific details
   projectName?: string;

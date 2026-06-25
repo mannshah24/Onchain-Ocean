@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useOceanStore } from '../../store/useOceanStore';
 
 // Seeded random helper
 function seededRand(seed: number) {
@@ -18,6 +19,7 @@ export default function CitySkyline() {
   const ventParticlesRef = useRef<THREE.InstancedMesh>(null);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const theme = useOceanStore((state) => state.theme);
 
   // 1. Generate Basalt Columns (Reef ridges in the background)
   // We place hexagonal basalt columns in arcs around the background.
@@ -27,9 +29,9 @@ export default function CitySkyline() {
 
     // Three arcs for the background ridge
     const zones = [
-      { centerAngle: -Math.PI / 2, color: '#0a233a', emissive: '#06b6d4', radius: 140, count: 65 }, // Core Reef
-      { centerAngle: -Math.PI, color: '#1a0c2e', emissive: '#a855f7', radius: 130, count: 55 },     // DeFi Trench
-      { centerAngle: Math.PI / 4, color: '#2a1108', emissive: '#fbbf24', radius: 135, count: 55 },    // Social Shelf
+      { centerAngle: -Math.PI / 2, color: '#113554', emissive: '#06b6d4', radius: 140, count: 35 }, // Core Reef
+      { centerAngle: -Math.PI, color: '#261245', emissive: '#a855f7', radius: 130, count: 25 },     // DeFi Trench
+      { centerAngle: Math.PI / 4, color: '#44220f', emissive: '#fbbf24', radius: 135, count: 25 },    // Social Shelf
     ];
 
     zones.forEach((z) => {
@@ -39,9 +41,9 @@ export default function CitySkyline() {
         const x = Math.cos(angle) * rad;
         const zPos = Math.sin(angle) * rad;
 
-        const width = 6 + rng() * 8;
-        const height = 15 + rng() * 45;
-        const depth = 6 + rng() * 8;
+        const width = 3 + rng() * 5;
+        const height = 10 + rng() * 30;
+        const depth = 3 + rng() * 5;
 
         result.push({
           pos: [x, height / 2, zPos],
@@ -171,7 +173,12 @@ export default function CitySkyline() {
       {/* 1. Basalt Hex Columns */}
       <instancedMesh ref={columnsRef} args={[null as any, null as any, columns.length]} castShadow receiveShadow>
         <cylinderGeometry args={[0.5, 0.58, 1, 6]} />
-        <meshStandardMaterial roughness={0.88} metalness={0.2} />
+        <meshStandardMaterial 
+          roughness={0.65} 
+          metalness={0.4} 
+          emissive={theme.accent} 
+          emissiveIntensity={0.35} 
+        />
       </instancedMesh>
 
       {/* 2. Hydrothermal Vent Chimneys */}
